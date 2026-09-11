@@ -1,5 +1,6 @@
 """
-Procedural infinite road generator with unstructured, organic Indian road characteristics.
+Procedural infinite road generator with unstructured, dynamic width variations
+and sparse, weathered Indian road characteristics.
 """
 
 import math
@@ -8,7 +9,7 @@ from config import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     COLOR_BG_GRASS, COLOR_DIRT_SHOULDER, COLOR_ASPHALT,
     COLOR_ASPHALT_PATCH, COLOR_ROAD_MARKING,
-    ROAD_BASE_WIDTH, SHOULDER_WIDTH
+    ROAD_BASE_WIDTH, ROAD_MIN_WIDTH, ROAD_MAX_WIDTH, SHOULDER_WIDTH
 )
 
 class InfiniteRoad:
@@ -32,10 +33,26 @@ class InfiniteRoad:
         return self.base_cx + offset
 
     def get_road_width(self, world_y: float) -> float:
-        """Returns the road width at world_y (varies organically)."""
+        """
+        Returns the road width at world_y.
+        Varies dynamically between wide open stretches (~420px)
+        and narrow choke points / culvert pinches (~205px).
+        """
         u = -world_y
-        variation = 45.0 * math.sin(u * 0.0028 + 2.1) + 20.0 * math.sin(u * 0.0069)
-        return max(260.0, min(390.0, ROAD_BASE_WIDTH + variation))
+        # Broad macro changes between wide highway and narrower village roads
+        macro = 60.0 * math.sin(u * 0.0011) + 28.0 * math.sin(u * 0.0029 + 1.7)
+
+        # Localized choke points (e.g. narrow bridges, roadside encroachment, culverts)
+        choke = math.sin(u * 0.00065 + 0.8)
+        choke_penalty = 0.0
+        if choke > 0.65:
+            choke_penalty = ((choke - 0.65) / 0.35) * 85.0
+        
+        # Micro unevenness
+        micro = 14.0 * math.sin(u * 0.0075 + 0.3)
+        
+        w = ROAD_BASE_WIDTH + macro - choke_penalty + micro
+        return max(ROAD_MIN_WIDTH, min(ROAD_MAX_WIDTH, w))
 
     def get_road_edges(self, world_y: float):
         """Returns (left_edge, right_edge, center_x, width) at world_y."""
@@ -159,15 +176,17 @@ class InfiniteRoad:
                     patch_rect = pygame.Rect(int(px - pw / 2), int(sy - ph / 2), pw, ph)
                     pygame.draw.ellipse(surface, COLOR_ASPHALT_PATCH, patch_rect)
 
-        # 4. Draw Broken / Faded Center Markings
-        dash_len = 28
-        gap_len = 34
+        # 4. Sparse Weathered Center Markings (only appear sparsely here and there)
+        dash_len = 24
+        gap_len = 36
         for i in range(len(center_pts) - 1):
             cx, sy, wy = center_pts[i]
-            # Modulo on world_y for stable dashed lines as world moves
-            if (-wy) % (dash_len + gap_len) < dash_len:
+            # Only active on isolated sparse segments (~15% of the highway)
+            sparse_active = (math.sin((-wy) * 0.0013) > 0.72)
+            if sparse_active and ((-wy) % (dash_len + gap_len) < dash_len):
                 nx, nsy, _ = center_pts[i+1]
-                pygame.draw.line(surface, COLOR_ROAD_MARKING, (cx, sy), (nx, nsy), 3)
+                # Faded worn paint
+                pygame.draw.line(surface, COLOR_ROAD_MARKING, (cx, sy), (nx, nsy), 2)
 
         # 5. Draw Rough Road Edge Lines
         if len(road_pts_left) > 1:

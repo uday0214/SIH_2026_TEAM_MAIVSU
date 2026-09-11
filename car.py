@@ -1,6 +1,6 @@
 """
 Autonomous Player Car with pure pursuit trajectory tracking, dynamic speed control,
-and procedural vehicle rendering with headlights and brake lights.
+controlled steering constraints, Auto-Speed mode, and procedural vehicle rendering.
 """
 
 import math
@@ -17,7 +17,7 @@ class AutonomousCar:
     def __init__(self, start_x: float, start_y: float):
         self.x = start_x
         self.y = start_y
-        self.speed = 0.0 # Starts stationary, ramps up smoothly
+        self.speed = 0.0
         self.target_speed = PLAYER_BASE_SPEED
         self.heading = 0.0 # radians (0 is pointing up along -Y)
         self.steering_angle = 0.0
@@ -31,16 +31,21 @@ class AutonomousCar:
         self.target_waypoint: Tuple[float, float] = (start_x, start_y - 50)
         self.replan_timer = 0.0
 
+        # Auto Mode & Speed Adaptation
+        self.auto_mode = True
+        self.auto_speed_reason = "CRUISING"
+
         # State & Feedback
         self.pothole_bumps = 0
         self.collisions = 0
+        self.pedestrian_bumps = 0
         self.bump_shake = 0.0
         self.is_braking = False
 
         # Visual styling
-        self.body_color = (0, 150, 255)      # Vibrant electric blue
-        self.cabin_color = (25, 30, 45)       # Dark tinted glass
-        self.headlight_color = (255, 255, 210, 45) # Warm headlight beam
+        self.body_color = (0, 150, 255)      # Electric blue
+        self.cabin_color = (25, 30, 45)       # Tinted glass
+        self.headlight_color = (255, 255, 210, 45)
         self.honk_timer = 0.0
 
     def update(self, dt: float, road, obstacles, planner):
@@ -49,66 +54,111 @@ class AutonomousCar:
         if self.replan_timer >= PLANNER_REPLAN_INTERVAL or not self.path:
             self.replan_timer = 0.0
             
-            # Extract active obstacles in lookahead range
             min_y = self.y - 450
             max_y = self.y + 60
-            p_nearby, t_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
+            p_nearby, t_nearby, ped_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
             
-            # Compute new A* path
-            self.path = planner.plan_path(self.x, self.y, self.speed, p_nearby, t_nearby)
+            self.path = planner.plan_path(self.x, self.y, self.speed, p_nearby, t_nearby, ped_nearby)
 
-        # 2. Pure Pursuit Path Tracking
-        # Find a lookahead target point on the path
-        pursuit_dist = max(35.0, min(80.0, self.speed * 0.35))
+        # 2. Pure Pursuit Path Tracking with Controlled Steering Constraints
+        # Longer pursuit lookahead ensures smooth, non-twitchy steering
+        pursuit_dist = max(45.0, min(90.0, self.speed * 0.40))
         target_pt = self._find_pursuit_target(pursuit_dist)
         self.target_waypoint = target_pt
 
-        # Calculate desired steering heading towards target
         dx = target_pt[0] - self.x
-        dy = target_pt[1] - self.y # negative when ahead
+        dy = target_pt[1] - self.y
         desired_heading = math.atan2(dx, -dy)
 
-        # Smooth steering with rate limit
+        # Controlled steering constraint:
+        # Instead of sharp snaps, limit steering velocity with smooth angular damping
         angle_diff = (desired_heading - self.heading + math.pi) % (2 * math.pi) - math.pi
-        max_turn = PLAYER_STEER_SPEED * dt
-        self.steering_angle = max(-max_turn, min(max_turn, angle_diff))
-        self.heading += self.steering_angle
+        target_steer = max(-PLAYER_STEER_SPEED, min(PLAYER_STEER_SPEED, angle_diff * 2.8))
+        self.steering_angle += (target_steer - self.steering_angle) * min(1.0, 5.5 * dt)
+        self.heading += self.steering_angle * dt
 
-        # 3. Dynamic Speed Adjustment
-        # Slow down during sharp steering or when congested ahead
-        curvature_factor = max(0.0, 1.0 - abs(angle_diff) * 1.5)
-        desired_speed = PLAYER_MIN_SPEED + (self.target_speed - PLAYER_MIN_SPEED) * curvature_factor
-        
-        # Check clearance immediately ahead (emergency slow down if obstacle is tight)
-        ahead_box_y = self.y - 45
+        # 3. Auto Speed Mode Adaptation
+        if self.auto_mode:
+            # Evaluate situational driving parameters
+            rw = road.get_road_width(self.y)
+            # Width factor: slow down in narrow bridges/choke points, speed up on wide open roads
+            width_ratio = max(0.0, min(1.0, (rw - 210.0) / 190.0))
+            base_auto_speed = PLAYER_MIN_SPEED + 80.0 + width_ratio * 125.0
+            reason = "CRUISING (WIDE ROAD)" if width_ratio > 0.55 else "CHOKE POINT (NARROW)"
+
+            # Curvature lookahead factor (anticipate sharp bends ahead)
+            future_tangent = road.get_tangent_angle(self.y - 140)
+            curr_tangent = road.get_tangent_angle(self.y)
+            curve_severity = abs((future_tangent - curr_tangent + math.pi) % (2 * math.pi) - math.pi)
+            if curve_severity > 0.30:
+                curve_slow = max(0.62, 1.0 - (curve_severity - 0.30) * 1.5)
+                base_auto_speed *= curve_slow
+                reason = "SHARP CURVE AHEAD"
+
+            # Check pedestrians ahead (cautious braking for jaywalkers)
+            for ped in obstacles.pedestrians:
+                p_dy = self.y - ped.y
+                p_dx = abs(self.x - ped.x)
+                if 0 < p_dy < 130 and p_dx < 50:
+                    base_auto_speed = min(base_auto_speed, 70.0)
+                    self.honk_timer = 0.3
+                    reason = "BRAKING FOR PEDESTRIAN"
+                    break
+
+            # Check slow traffic ahead
+            for t in obstacles.traffic:
+                t_dy = self.y - t.y
+                t_dx = abs(self.x - t.x)
+                if 0 < t_dy < 90 and t_dx < 36:
+                    base_auto_speed = min(base_auto_speed, t.speed * 0.90)
+                    self.honk_timer = 0.35
+                    reason = "FOLLOWING TRAFFIC"
+                    break
+
+            self.target_speed = base_auto_speed
+            self.auto_speed_reason = reason
+        else:
+            self.auto_speed_reason = "MANUAL SPEED"
+
+        # 4. Dynamic Speed Control Execution
+        curvature_factor = max(0.0, 1.0 - abs(angle_diff) * 1.6)
+        effective_desired = PLAYER_MIN_SPEED + (self.target_speed - PLAYER_MIN_SPEED) * curvature_factor
+
+        # Emergency obstacle clearance check
         for t in obstacles.traffic:
-            if 0 < (self.y - t.y) < 75 and abs(self.x - t.x) < 32:
-                desired_speed = min(desired_speed, t.speed * 0.9)
-                self.honk_timer = 0.35 # Honk horn when close behind traffic
+            if 0 < (self.y - t.y) < 70 and abs(self.x - t.x) < 30:
+                effective_desired = min(effective_desired, t.speed * 0.85)
+                self.honk_timer = 0.35
+                break
+
+        for ped in obstacles.pedestrians:
+            if 0 < (self.y - ped.y) < 65 and abs(self.x - ped.x) < 32:
+                effective_desired = min(effective_desired, 45.0)
+                self.honk_timer = 0.35
                 break
 
         if self.honk_timer > 0:
             self.honk_timer -= dt
 
-        if desired_speed < self.speed:
-            self.speed = max(desired_speed, self.speed - PLAYER_DECEL * dt)
+        if effective_desired < self.speed:
+            self.speed = max(effective_desired, self.speed - PLAYER_DECEL * dt)
             self.is_braking = True
         else:
-            self.speed = min(desired_speed, self.speed + PLAYER_ACCEL * dt)
+            self.speed = min(effective_desired, self.speed + PLAYER_ACCEL * dt)
             self.is_braking = False
 
-        # 4. Integrate Motion
+        # 5. Integrate Motion
         vx = math.sin(self.heading) * self.speed
         vy = -math.cos(self.heading) * self.speed
         self.x += vx * dt
         self.y += vy * dt
 
-        # 5. Decay bump shake
+        # 6. Decay bump shake
         if self.bump_shake > 0:
             self.bump_shake = max(0.0, self.bump_shake - dt * 5.0)
 
-        # 6. Obstacle collision detection
-        # Check potholes
+        # 7. Collision Detection
+        # Potholes
         for p in obstacles.potholes:
             if not getattr(p, 'hit', False) and abs(self.y - p.y) < 25 and abs(self.x - p.x) < 25:
                 if p.contains_point(self.x, self.y):
@@ -117,22 +167,26 @@ class AutonomousCar:
                     self.pothole_bumps += 1
                     break
 
-        # Check traffic collision
+        # Dynamic Traffic
         for t in obstacles.traffic:
             if not getattr(t, 'hit', False) and abs(self.y - t.y) < (self.length + t.length) / 2 and abs(self.x - t.x) < (self.width + t.width) / 2:
                 t.hit = True
                 self.collisions += 1
+
+        # Pedestrians
+        for ped in obstacles.pedestrians:
+            if not getattr(ped, 'hit', False) and abs(self.y - ped.y) < 22 and abs(self.x - ped.x) < 18:
+                ped.hit = True
+                self.pedestrian_bumps += 1
 
     def _find_pursuit_target(self, lookahead: float) -> Tuple[float, float]:
         """Finds point on A* path ahead of vehicle by lookahead distance."""
         if not self.path:
             return (self.x, self.y - lookahead)
 
-        # Iterate forward through path points
         for i in range(len(self.path) - 1):
             p1 = self.path[i]
             p2 = self.path[i+1]
-            # Only consider points ahead of car
             if p2[1] < self.y:
                 dist = math.hypot(p2[0] - self.x, p2[1] - self.y)
                 if dist >= lookahead:
@@ -143,7 +197,6 @@ class AutonomousCar:
     def draw(self, surface: pygame.Surface, camera_y: float):
         sy = self.y - camera_y
 
-        # Chassis shake effect when hitting bump
         shake_x = 0
         shake_y = 0
         if self.bump_shake > 0:
@@ -153,12 +206,11 @@ class AutonomousCar:
         draw_x = self.x + shake_x
         draw_y = sy + shake_y
 
-        # Draw Headlights Light Beam (projected on road ahead)
+        # Headlight beam projection
         beam_length = 190
         beam_width = 85
         beam_surf = pygame.Surface((surface.get_width(), surface.get_height()), pygame.SRCALPHA)
         
-        # Calculate headlight source and cone corners
         cos_h = math.cos(self.heading)
         sin_h = math.sin(self.heading)
 
@@ -182,7 +234,7 @@ class AutonomousCar:
         ])
         surface.blit(beam_surf, (0, 0))
 
-        # Render Rotated Vehicle Sprite
+        # Vehicle Sprite
         veh_size = int(self.length * 1.6)
         car_surf = pygame.Surface((veh_size, veh_size), pygame.SRCALPHA)
         cx = veh_size // 2

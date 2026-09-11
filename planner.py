@@ -1,6 +1,7 @@
 """
 A* Pathfinding Planner on a moving local spatial lattice.
-Directs the autonomous vehicle smoothly around potholes, traffic, and road curvature.
+Directs the autonomous vehicle smoothly around potholes, traffic, and pedestrians
+with strict curvature and steering constraints.
 """
 
 import math
@@ -8,7 +9,7 @@ import heapq
 from typing import List, Tuple, Optional, Set
 from config import (
     PLANNER_CELL_SIZE, PLANNER_LOOKAHEAD_DIST,
-    SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE
+    SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN
 )
 
 class GridNode:
@@ -41,25 +42,25 @@ class AStarPlanner:
         self.nodes_explored_count = 0
 
     def plan_path(self, car_x: float, car_y: float, car_speed: float,
-                  potholes: list, traffic: list) -> List[Tuple[float, float]]:
+                  potholes: list, traffic: list, pedestrians: list = None) -> List[Tuple[float, float]]:
         """
-        Runs A* search from car's current location up to lookahead horizon.
+        Runs constrained A* search from car's current location up to lookahead horizon.
         Returns a smoothed list of world coordinates (x, y).
         """
+        if pedestrians is None:
+            pedestrians = []
+
         cell = self.cell_size
         H = self.lookahead_dist
         
-        # 1. Define local bounding grid
-        # Car is at the bottom of the grid, driving upwards (decreasing world Y)
         start_world_y = car_y
         goal_world_y = car_y - H
         
         road_center_ahead = self.road.get_road_center(goal_world_y)
-        road_center_now = self.road.get_road_center(car_y)
         
-        # Grid X span covers road boundaries + margins
-        left_bound = min(self.road.get_road_edges(car_y)[0], self.road.get_road_edges(goal_world_y)[0]) - 50
-        right_bound = max(self.road.get_road_edges(car_y)[1], self.road.get_road_edges(goal_world_y)[1]) + 50
+        # Grid X bounds
+        left_bound = min(self.road.get_road_edges(car_y)[0], self.road.get_road_edges(goal_world_y)[0]) - 40
+        right_bound = max(self.road.get_road_edges(car_y)[1], self.road.get_road_edges(goal_world_y)[1]) + 40
         
         grid_min_x = math.floor(left_bound / cell) * cell
         grid_max_x = math.ceil(right_bound / cell) * cell
@@ -67,7 +68,6 @@ class AStarPlanner:
         num_cols = int((grid_max_x - grid_min_x) / cell) + 1
         num_rows = int(H / cell) + 2
 
-        # Coordinate conversion helpers
         def world_to_grid(wx: float, wy: float) -> Tuple[int, int]:
             c = int(round((wx - grid_min_x) / cell))
             r = int(round((start_world_y - wy) / cell))
@@ -80,73 +80,89 @@ class AStarPlanner:
 
         # Start and Goal
         start_col, start_row = world_to_grid(car_x, car_y)
-        # Goal x prefers road centerline at lookahead distance
         goal_col, goal_row = world_to_grid(road_center_ahead, goal_world_y)
         goal_wx, goal_wy = grid_to_world(goal_col, goal_row)
 
-        # 2. Pre-evaluate Obstacle Grid & Costs
-        # Map dynamic traffic forward in time according to relative distance
+        # Dynamic traffic projection
         predicted_traffic = []
-        effective_car_spd = max(120.0, car_speed)
+        effective_car_spd = max(110.0, car_speed)
         for t in traffic:
-            # Estimate time when car reaches this traffic's Y
             delta_y = car_y - t.y
-            if delta_y > -40:  # In front of or right next to car
+            if delta_y > -40:
                 t_arrival = max(0.0, delta_y / effective_car_spd)
                 pred_y = t.y - t.speed * t_arrival
-                road_cx_pred = self.road.get_road_center(pred_y)
-                pred_x = road_cx_pred + t.lateral_offset
+                # Track predicted x based on road curve and vehicle lateral target
+                pred_road_cx = self.road.get_road_center(pred_y)
+                pred_x = pred_road_cx + t.lateral_offset
                 predicted_traffic.append((pred_x, pred_y, t))
             else:
                 predicted_traffic.append((t.x, t.y, t))
 
-        # Check cell traversability
+        # Pedestrian projection
+        predicted_pedestrians = []
+        for ped in pedestrians:
+            delta_y = car_y - ped.y
+            if delta_y > -30 and ped.state == 'CROSSING':
+                t_arr = max(0.0, delta_y / effective_car_spd)
+                pred_px = ped.x + ped.cross_speed_x * t_arr
+                predicted_pedestrians.append((pred_px, ped.y, ped))
+            else:
+                predicted_pedestrians.append((ped.x, ped.y, ped))
+
         obstacle_cells = []
-        
+
         def compute_cell_cost(c: int, r: int) -> float:
             wx, wy = grid_to_world(c, r)
             
-            # Check road boundaries
+            # Road boundaries constraint
             left_e, right_e, cx, rw = self.road.get_road_edges(wy)
-            margin = 18.0
+            margin = 16.0
             if wx < left_e + margin or wx > right_e - margin:
-                # Off asphalt or on dirt shoulder
                 off = self.road.get_offroad_penalty(wx, wy)
-                return 400.0 + off * 25.0
+                return 500.0 + off * 30.0
 
-            # Distance from road center (soft preference to stay centered unless dodging)
+            # Mild centerline attraction (stabilizes steering down the road)
             center_dist = abs(wx - cx) / (rw * 0.5)
-            penalty = center_dist * 6.0
+            penalty = center_dist * 4.0
 
-            # Check potholes
+            # 1. Potholes
             for p in potholes:
                 dx = wx - p.x
                 dy = wy - p.y
                 dist_sq = dx * dx + dy * dy
                 safe_r = p.effective_radius + SAFETY_MARGIN_POTHOLE
                 if dist_sq <= (safe_r * safe_r):
-                    return float('inf') # Impassable
-                elif dist_sq <= ((safe_r + 28) ** 2):
-                    # Buffer repulsive cost
+                    return float('inf')
+                elif dist_sq <= ((safe_r + 26) ** 2):
                     dist = math.sqrt(dist_sq)
-                    penalty += (safe_r + 28 - dist) * 12.0
+                    penalty += (safe_r + 26 - dist) * 14.0
 
-            # Check traffic vehicles (both actual & predicted)
+            # 2. Dynamic Traffic Vehicles
             for pred_x, pred_y, t in predicted_traffic:
-                # Check bounding distance
                 dx = abs(wx - pred_x)
                 dy = abs(wy - pred_y)
                 safe_w = (t.width / 2.0) + SAFETY_MARGIN_CAR + 4
-                safe_l = (t.length / 2.0) + SAFETY_MARGIN_CAR + 10
+                safe_l = (t.length / 2.0) + SAFETY_MARGIN_CAR + 8
                 if dx < safe_w and dy < safe_l:
-                    return float('inf') # Collision box
-                elif dx < safe_w + 24 and dy < safe_l + 32:
-                    # Vehicle safety buffer
-                    penalty += 75.0 + (safe_w + 24 - dx) * 5.0 + (safe_l + 32 - dy) * 4.0
+                    return float('inf')
+                elif dx < safe_w + 24 and dy < safe_l + 30:
+                    penalty += 80.0 + (safe_w + 24 - dx) * 5.0 + (safe_l + 30 - dy) * 4.0
+
+            # 3. Pedestrians
+            for pred_px, pred_py, ped in predicted_pedestrians:
+                dx = wx - pred_px
+                dy = wy - pred_py
+                dist_sq = dx * dx + dy * dy
+                safe_r = ped.radius + SAFETY_MARGIN_PEDESTRIAN + 6
+                if dist_sq <= (safe_r * safe_r):
+                    return float('inf') # Pedestrian collision box strictly forbidden
+                elif dist_sq <= ((safe_r + 28) ** 2):
+                    dist = math.sqrt(dist_sq)
+                    penalty += 110.0 + (safe_r + 28 - dist) * 9.0
 
             return penalty
 
-        # 3. Initialize A* Data Structures
+        # A* Graph Setup
         nodes = {}
         def get_node(c: int, r: int) -> GridNode:
             key = (c, r)
@@ -170,22 +186,20 @@ class AStarPlanner:
         best_node = start_node
         best_progress_r = start_row
 
-        # Motion primitives for vehicle driving forward:
-        # (delta_col, delta_row, base_cost_weight)
-        # Moving up in grid (decreasing wy) corresponds to row + 1, + 2
+        # Constrained forward driving moves:
+        # Heavier penalty on sharp lateral steps prevents erratic zig-zagging
         moves = [
-            (0, 1, 1.0),      # Straight forward
-            (-1, 1, 1.35),    # Slight left
-            (1, 1, 1.35),     # Slight right
-            (-2, 1, 2.1),     # Swerve left
-            (2, 1, 2.1),      # Swerve right
-            (-1, 2, 2.3),     # Steep forward left
-            (1, 2, 2.3),      # Steep forward right
-            (0, 2, 2.0),      # Faster forward leap
+            (0, 1, 1.0),      # Straight forward (most preferred)
+            (-1, 1, 1.55),    # Gentle left
+            (1, 1, 1.55),     # Gentle right
+            (0, 2, 2.0),      # Cruising forward
+            (-1, 2, 2.2),     # Gradual left forward
+            (1, 2, 2.2),      # Gradual right forward
+            (-2, 1, 4.2),     # Sharp swerve left (penalized, used only if blocked)
+            (2, 1, 4.2),      # Sharp swerve right (penalized, used only if blocked)
         ]
 
-        # 4. Search Loop
-        max_iterations = 650
+        max_iterations = 600
         iterations = 0
 
         while open_set and iterations < max_iterations:
@@ -198,17 +212,14 @@ class AStarPlanner:
             closed_set.add(coord)
             explored_coords.append((current.x, current.y))
 
-            # Track progress towards goal row
             if current.row > best_progress_r:
                 best_progress_r = current.row
                 best_node = current
 
-            # Termination condition: reached goal row or near horizon
-            if current.row >= num_rows - 2 or (abs(current.row - goal_row) <= 1 and abs(current.col - goal_col) <= 2):
+            if current.row >= num_rows - 2:
                 best_node = current
                 break
 
-            # Explore neighbors
             for dc, dr, move_weight in moves:
                 nc = current.col + dc
                 nr = current.row + dr
@@ -218,7 +229,6 @@ class AStarPlanner:
                 if (nc, nr) in closed_set:
                     continue
 
-                # Evaluate environment cost
                 cell_penalty = compute_cell_cost(nc, nr)
                 if math.isinf(cell_penalty):
                     obstacle_cells.append(grid_to_world(nc, nr))
@@ -228,26 +238,25 @@ class AStarPlanner:
                 step_dist = math.hypot(dc * cell, dr * cell)
                 tentative_g = current.g + step_dist * move_weight + cell_penalty
 
-                # Steering smoothness penalty
+                # Strict steering smoothness constraint:
+                # Penalize rapid steering reversal or lateral direction flip
                 if current.parent:
                     prev_dc = current.col - current.parent.col
                     steering_diff = abs(dc - prev_dc)
-                    tentative_g += steering_diff * 4.0
+                    tentative_g += steering_diff * 12.0
 
                 if tentative_g < neighbor.g:
                     neighbor.parent = current
                     neighbor.g = tentative_g
-                    # Heuristic: Euclidean distance to goal point
                     neighbor.h = math.hypot(neighbor.x - goal_wx, neighbor.y - goal_wy)
                     neighbor.f = neighbor.g + neighbor.h
                     tie_breaker += 1
                     heapq.heappush(open_set, (neighbor.f, tie_breaker, neighbor))
 
         self.nodes_explored_count = len(closed_set)
-        self.last_explored_cells = explored_coords[::3] # downsample for debug rendering
+        self.last_explored_cells = explored_coords[::3]
         self.last_obstacle_cells = obstacle_cells[::2]
 
-        # 5. Reconstruct Path
         raw_path = []
         curr = best_node
         while curr:
@@ -255,7 +264,6 @@ class AStarPlanner:
             curr = curr.parent
         raw_path.reverse()
 
-        # Fallback: if search couldn't progress, steer towards road center ahead
         if len(raw_path) <= 1:
             raw_path = [
                 (car_x, car_y),
@@ -263,13 +271,12 @@ class AStarPlanner:
                 (road_center_ahead, goal_world_y)
             ]
 
-        # 6. Path Smoothing (Chaikin / spline smoothing for fluid vehicle steering)
         smoothed = self._smooth_path(raw_path)
         self.last_path = smoothed
         return smoothed
 
-    def _smooth_path(self, path: List[Tuple[float, float]], iterations: int = 2) -> List[Tuple[float, float]]:
-        """Applies Chaikin's corner-cutting algorithm for butter-smooth steering curves."""
+    def _smooth_path(self, path: List[Tuple[float, float]], iterations: int = 3) -> List[Tuple[float, float]]:
+        """Applies 3 iterations of Chaikin's corner-cutting algorithm for silky trajectories."""
         if len(path) < 3:
             return path
 
