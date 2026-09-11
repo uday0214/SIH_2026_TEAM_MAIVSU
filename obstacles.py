@@ -213,6 +213,203 @@ class Pedestrian:
         pygame.draw.circle(surface, self.hair_color, (ix, isy - 1), 3)
 
 
+class Cow:
+    """
+    Indian Highway Bovine (Sacred Cow / Zebu / Desi Cattle).
+    Moves in herds of max 4 cows along road shoulders/edges,
+    or calmly rests in the middle of the road.
+    """
+    BREEDS = [
+        {
+            'name': 'WHITE_ZEBU',
+            'body': (246, 243, 237),
+            'shade': (212, 207, 198),
+            'muzzle': (235, 192, 195),
+            'horns': (120, 115, 110),
+            'patches': None
+        },
+        {
+            'name': 'BROWN_DESI',
+            'body': (175, 120, 75),
+            'shade': (135, 85, 50),
+            'muzzle': (105, 70, 45),
+            'horns': (65, 60, 55),
+            'patches': None
+        },
+        {
+            'name': 'SPOTTED',
+            'body': (244, 244, 246),
+            'shade': (205, 205, 210),
+            'muzzle': (230, 185, 185),
+            'horns': (90, 85, 80),
+            'patches': [(42, 42, 45), (55, 52, 50)]
+        },
+        {
+            'name': 'GREY_GYR',
+            'body': (188, 190, 194),
+            'shade': (145, 148, 154),
+            'muzzle': (130, 130, 135),
+            'horns': (60, 55, 55),
+            'patches': None
+        }
+    ]
+
+    def __init__(self, x: float, y: float, state: str = 'WALKING_EDGE', side: int = -1, herd_id: int = 0):
+        self.x = x
+        self.y = y
+        self.state = state  # 'WALKING_EDGE' or 'RESTING'
+        self.is_resting = (state == 'RESTING')
+        self.is_moving = not self.is_resting
+        self.side = side  # -1: left edge, +1: right edge, 0: middle
+        self.herd_id = herd_id
+
+        self.breed = random.choice(self.BREEDS)
+        self.width = 22.0
+        self.length = 40.0
+        self.radius = 17.0
+        self.hit = False
+
+        if self.is_resting:
+            self.speed = 0.0
+            self.angle_deg = random.uniform(-25.0, 25.0)
+        else:
+            self.speed = random.uniform(10.0, 16.0) * random.choice([-1, 1])
+            self.angle_deg = 0.0 if self.speed < 0 else 180.0
+
+        self.tail_phase = random.uniform(0.0, 6.28)
+        self.chew_phase = random.uniform(0.0, 6.28)
+        self.walk_phase = random.uniform(0.0, 6.28)
+
+    def update(self, dt: float, road):
+        self.tail_phase += dt * 3.2
+        self.chew_phase += dt * 3.8
+
+        if self.is_moving:
+            self.walk_phase += dt * 2.8
+            self.y += self.speed * dt
+
+            left, right, cx, rw = road.get_road_edges(self.y)
+            if self.side == -1:
+                min_x = left - 24.0
+                max_x = left + 22.0
+            elif self.side == 1:
+                min_x = right - 22.0
+                max_x = right + 24.0
+            else:
+                min_x = cx - 35.0
+                max_x = cx + 35.0
+
+            self.x = max(min_x, min(max_x, self.x + math.sin(self.walk_phase * 0.4) * 3.5 * dt))
+
+            road_ang = math.degrees(road.get_tangent_angle(self.y))
+            base_ang = road_ang if self.speed < 0 else (road_ang + 180.0)
+            self.angle_deg = base_ang + math.sin(self.walk_phase) * 5.0
+        else:
+            road_ang = math.degrees(road.get_tangent_angle(self.y))
+            self.angle_deg = road_ang + math.sin(self.chew_phase * 0.5) * 3.5
+
+    def draw(self, surface: pygame.Surface, camera_y: float):
+        sy = self.y - camera_y
+        h = surface.get_height()
+        if sy < -70 or sy > h + 70:
+            return
+
+        sw, sh = 68, 68
+        cow_surf = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        cx, cy = sw // 2, sh // 2
+
+        body_col = self.breed['body']
+        shade_col = self.breed['shade']
+        muzzle_col = self.breed['muzzle']
+        horn_col = self.breed['horns']
+
+        # Ground contact shadow
+        shadow_rect = pygame.Rect(cx - 10, cy - 18, 20, 36)
+        pygame.draw.ellipse(cow_surf, (20, 24, 20, 95), shadow_rect)
+
+        if self.is_resting:
+            # RESTING COW (Sitting comfortably, chewing cud)
+            torso_rect = pygame.Rect(cx - 11, cy - 17, 22, 34)
+            pygame.draw.ellipse(cow_surf, body_col, torso_rect)
+            pygame.draw.ellipse(cow_surf, shade_col, torso_rect, width=2)
+
+            if self.breed['patches']:
+                pcol = self.breed['patches'][0]
+                pygame.draw.ellipse(cow_surf, pcol, (cx - 8, cy - 10, 10, 14))
+                pygame.draw.ellipse(cow_surf, pcol, (cx + 1, cy + 1, 8, 11))
+
+            # Dorsal hump
+            hump_rect = pygame.Rect(cx - 5, cy - 14, 10, 8)
+            pygame.draw.ellipse(cow_surf, shade_col, hump_rect)
+
+            # Head
+            head_rect = pygame.Rect(cx - 6, cy - 23, 12, 11)
+            pygame.draw.ellipse(cow_surf, body_col, head_rect)
+            pygame.draw.ellipse(cow_surf, muzzle_col, (cx - 4, cy - 25, 8, 5))
+            pygame.draw.circle(cow_surf, (40, 30, 30), (cx - 2, cy - 24), 1)
+            pygame.draw.circle(cow_surf, (40, 30, 30), (cx + 2, cy - 24), 1)
+
+            # Curved horns
+            pygame.draw.arc(cow_surf, horn_col, (cx - 11, cy - 25, 9, 10), 0.5, 2.7, 2)
+            pygame.draw.arc(cow_surf, horn_col, (cx + 2, cy - 25, 9, 10), 0.4, 2.6, 2)
+
+            # Ears
+            pygame.draw.line(cow_surf, body_col, (cx - 6, cy - 20), (cx - 11, cy - 19), 2)
+            pygame.draw.line(cow_surf, body_col, (cx + 6, cy - 20), (cx + 11, cy - 19), 2)
+
+            # Swishing tail curled beside
+            tail_swish = math.sin(self.tail_phase) * 3.0
+            pygame.draw.line(cow_surf, shade_col, (cx, cy + 16), (cx + 4 + tail_swish, cy + 19), 2)
+            pygame.draw.circle(cow_surf, (35, 30, 25), (int(cx + 4 + tail_swish), cy + 20), 2)
+        else:
+            # WALKING COW (Slow movement along edge)
+            leg_off1 = math.sin(self.walk_phase) * 3.0
+            leg_off2 = -leg_off1
+            pygame.draw.circle(cow_surf, shade_col, (cx - 9, int(cy - 12 + leg_off1)), 3)
+            pygame.draw.circle(cow_surf, shade_col, (cx + 9, int(cy - 12 + leg_off2)), 3)
+            pygame.draw.circle(cow_surf, shade_col, (cx - 9, int(cy + 12 + leg_off2)), 3)
+            pygame.draw.circle(cow_surf, shade_col, (cx + 9, int(cy + 12 + leg_off1)), 3)
+
+            torso_rect = pygame.Rect(cx - 10, cy - 18, 20, 36)
+            pygame.draw.ellipse(cow_surf, body_col, torso_rect)
+            pygame.draw.ellipse(cow_surf, shade_col, torso_rect, width=2)
+
+            if self.breed['patches']:
+                pcol = self.breed['patches'][0]
+                pygame.draw.ellipse(cow_surf, pcol, (cx - 6, cy - 8, 9, 13))
+                pygame.draw.ellipse(cow_surf, pcol, (cx + 1, cy + 2, 7, 10))
+
+            # Prominent Indian Zebu hump
+            pygame.draw.ellipse(cow_surf, shade_col, (cx - 6, cy - 15, 12, 9))
+            pygame.draw.ellipse(cow_surf, body_col, (cx - 5, cy - 14, 10, 7))
+
+            # Neck & Head
+            head_rect = pygame.Rect(cx - 6, cy - 25, 12, 12)
+            pygame.draw.ellipse(cow_surf, body_col, head_rect)
+            pygame.draw.ellipse(cow_surf, muzzle_col, (cx - 4, cy - 28, 8, 6))
+            pygame.draw.circle(cow_surf, (40, 30, 30), (cx - 2, cy - 27), 1)
+            pygame.draw.circle(cow_surf, (40, 30, 30), (cx + 2, cy - 27), 1)
+
+            # Horns
+            pygame.draw.line(cow_surf, horn_col, (cx - 5, cy - 24), (cx - 11, cy - 27), 2)
+            pygame.draw.line(cow_surf, horn_col, (cx - 11, cy - 27), (cx - 9, cy - 30), 2)
+            pygame.draw.line(cow_surf, horn_col, (cx + 5, cy - 24), (cx + 11, cy - 27), 2)
+            pygame.draw.line(cow_surf, horn_col, (cx + 11, cy - 27), (cx + 9, cy - 30), 2)
+
+            # Floppy ears
+            pygame.draw.ellipse(cow_surf, body_col, (cx - 12, cy - 22, 6, 4))
+            pygame.draw.ellipse(cow_surf, body_col, (cx + 6, cy - 22, 6, 4))
+
+            # Tail
+            swish = math.sin(self.tail_phase) * 4.5
+            pygame.draw.line(cow_surf, shade_col, (cx, cy + 18), (cx + swish, cy + 26), 2)
+            pygame.draw.circle(cow_surf, (30, 25, 20), (int(cx + swish), cy + 27), 2)
+
+        rot_surf = pygame.transform.rotate(cow_surf, -self.angle_deg)
+        rot_rect = rot_surf.get_rect(center=(int(self.x), int(sy)))
+        surface.blit(rot_surf, rot_rect)
+
+
 class TrafficVehicle:
     """
     Dynamic traffic vehicle with realistic vehicular kinematics:
@@ -233,6 +430,7 @@ class TrafficVehicle:
         self.heading = 0.0
         self.angle_deg = 0.0
         self.hit = False
+        self.target_x = x
 
         # Kinetic lateral speed
         self.vx = 0.0
@@ -293,7 +491,7 @@ class TrafficVehicle:
 
         self.cut_timer = random.uniform(self.cut_interval[0] * 0.5, self.cut_interval[1])
 
-    def update(self, dt: float, road, all_traffic=None, player_car=None, pedestrians=None):
+    def update(self, dt: float, road, all_traffic=None, player_car=None, pedestrians=None, cows=None):
         # 1. Autonomous collision avoidance & speed control (supports stopping to 0)
         desired_speed = self.cruising_speed
 
@@ -335,7 +533,26 @@ class TrafficVehicle:
                     else:
                         desired_speed = min(desired_speed, 20.0)
 
-        # D. Execute acceleration / braking
+        # D. Check cows ahead (predict behavior and adjust trajectory from far off)
+        if cows:
+            for cow in cows:
+                dy = self.y - cow.y
+                dx = abs(self.x - cow.x)
+                if 0 < dy < 180 and dx < (self.width * 0.5 + cow.width * 0.5 + 28.0):
+                    left_e, right_e, _, _ = road.get_road_edges(self.y)
+                    safe_l = left_e + self.width * 0.65 + 6.0
+                    safe_r = right_e - self.width * 0.65 - 6.0
+                    if cow.x >= self.x:
+                        self.target_x = max(safe_l, min(self.target_x, cow.x - cow.width * 0.5 - self.width * 0.5 - 20.0))
+                    else:
+                        self.target_x = min(safe_r, max(self.target_x, cow.x + cow.width * 0.5 + self.width * 0.5 + 20.0))
+
+                    if dy < 55.0:
+                        desired_speed = 0.0 # Full stop before cow
+                    elif dy < 125.0:
+                        desired_speed = min(desired_speed, 35.0)
+
+        # E. Execute acceleration / braking
         if desired_speed < self.speed:
             self.speed = max(desired_speed, self.speed - self.decel * dt)
             self.is_braking = True
@@ -506,18 +723,92 @@ class ObstacleManager:
         self.potholes = []
         self.traffic = []
         self.pedestrians = []
-        
+        self.cows = []
+
         self.next_pothole_y = -180
-        self.next_traffic_y = -300
-        self.next_pedestrian_y = -220
-        self.traffic_density = 0.5 # 0.1 (Sparse) to 1.0 (Rush Hour)
+        self.next_traffic_y = -150
+        self.next_pedestrian_y = -180
+        self.next_cow_y = -320
+
+        self.traffic_density = 0.5  # 0.1 (Sparse) to 1.0 (Rush Hour)
+        self.max_pedestrians = 7    # Independent separate quota (not counted as traffic)
 
         self.potholes_avoided = 0
         self.traffic_overtaken = 0
         self.pedestrians_avoided = 0
+        self.cows_navigated = 0
+
+        # Pre-populate road with initial lively traffic, pedestrians, and cows
+        self._prepopulate_world(0.0)
+
+    def _prepopulate_world(self, start_y: float):
+        """Spawns an initial distribution of vehicles, pedestrians, and cows ahead of the player."""
+        # Pre-populate 11 traffic vehicles across the road ahead
+        curr_y = start_y - 140.0
+        for _ in range(11):
+            curr_y -= random.uniform(85.0, 160.0)
+            left, right, cx, rw = self.road.get_road_edges(curr_y)
+            vtype = random.choices(
+                ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
+                weights=[0.24, 0.18, 0.28, 0.18, 0.12]
+            )[0]
+            spd, off = self._get_vehicle_spawn_params(vtype, rw)
+            self.traffic.append(TrafficVehicle(cx + off, curr_y, vtype, spd, off))
+
+        # Pre-populate 5 pedestrians
+        ped_y = start_y - 180.0
+        for _ in range(5):
+            ped_y -= random.uniform(180.0, 270.0)
+            left, right, cx, rw = self.road.get_road_edges(ped_y)
+            side = random.choice([-1, 1])
+            pedx = (left - random.uniform(6, 20)) if side == -1 else (right + random.uniform(6, 20))
+            self.pedestrians.append(Pedestrian(pedx, ped_y, side))
+
+        # Pre-populate 2 cow herds
+        cow_y = start_y - 340.0
+        self._spawn_cow_herd(cow_y, herd_id=1)
+        self._spawn_cow_herd(cow_y - 500.0, herd_id=2)
+
+    def _get_vehicle_spawn_params(self, vtype: str, rw: float):
+        if vtype == 'TRUCK':
+            speed = random.uniform(80.0, 105.0)
+            offset = random.choice([-rw * 0.18, rw * 0.16])
+        elif vtype == 'BUS':
+            speed = random.uniform(90.0, 115.0)
+            offset = random.choice([-rw * 0.20, 0.0])
+        elif vtype == 'AUTO':
+            speed = random.uniform(96.0, 124.0)
+            offset = random.choice([-rw * 0.26, -rw * 0.10, rw * 0.20])
+        elif vtype == 'BIKE':
+            speed = random.uniform(130.0, 170.0)
+            offset = random.uniform(-rw * 0.28, rw * 0.28)
+        else: # CAR
+            speed = random.uniform(115.0, 150.0)
+            offset = random.choice([-rw * 0.22, 0.0, rw * 0.22])
+        return speed, offset
+
+    def _spawn_cow_herd(self, base_y: float, herd_id: int):
+        herd_size = random.choices([1, 2, 3, 4], weights=[0.25, 0.38, 0.24, 0.13])[0]
+        herd_mode = random.choices(['EDGE', 'RESTING_MIDDLE'], weights=[0.66, 0.34])[0]
+        left, right, cx, rw = self.road.get_road_edges(base_y)
+
+        if herd_mode == 'RESTING_MIDDLE':
+            # Resting in road (max 2 resting together so road remains passable)
+            rest_count = min(herd_size, 2)
+            for i in range(rest_count):
+                cow_offset = random.uniform(-rw * 0.14, rw * 0.14)
+                cow_y = base_y + i * random.uniform(22.0, 36.0)
+                self.cows.append(Cow(cx + cow_offset, cow_y, state='RESTING', side=0, herd_id=herd_id))
+        else:
+            # Edge walking/grazing herd
+            side = random.choice([-1, 1])
+            for i in range(herd_size):
+                cow_y = base_y + i * random.uniform(26.0, 44.0)
+                cow_left, cow_right, _, _ = self.road.get_road_edges(cow_y)
+                base_x = (cow_left + random.uniform(4.0, 20.0)) if side == -1 else (cow_right - random.uniform(4.0, 20.0))
+                self.cows.append(Cow(base_x, cow_y, state='WALKING_EDGE', side=side, herd_id=herd_id))
 
     def update(self, dt: float, player_ref):
-        # Support both player_car instance or player_y float
         if hasattr(player_ref, 'y'):
             player_y = player_ref.y
             player_car = player_ref
@@ -525,22 +816,25 @@ class ObstacleManager:
             player_y = float(player_ref)
             player_car = None
 
-        # Update dynamic traffic with inter-vehicle collision avoidance
+        # Update dynamic traffic
         for veh in self.traffic:
-            veh.update(dt, self.road, self.traffic, player_car, self.pedestrians)
+            veh.update(dt, self.road, self.traffic, player_car, self.pedestrians, self.cows)
 
-        # Update pedestrians with vehicle threat detection & self-preservation
+        # Update pedestrians
         for ped in self.pedestrians:
             ped.update(dt, self.road, self.traffic, player_car)
 
-        spawn_horizon = player_y - 1100
+        # Update cows
+        for cow in self.cows:
+            cow.update(dt, self.road)
 
-        # Spawn potholes: Reduced probability by 55-60%, dynamically generated sizes
+        spawn_horizon = player_y - 1300
+
+        # 1. Potholes
         while self.next_pothole_y > spawn_horizon:
             py = self.next_pothole_y
             left, right, cx, rw = self.road.get_road_edges(py)
 
-            # Dynamically generated sizes (Small, Medium, Large Trench)
             ptype = random.choices(['SMALL', 'MEDIUM', 'LARGE'], weights=[0.42, 0.44, 0.14])[0]
             if ptype == 'SMALL':
                 rx = random.uniform(9.0, 14.0)
@@ -557,88 +851,106 @@ class ObstacleManager:
                 px = random.uniform(left + margin, right - margin)
                 self.potholes.append(Pothole(px, py, rx, ry))
 
-            # Reduced spawn frequency (260 - 580 px)
             self.next_pothole_y -= random.uniform(260.0, 580.0)
 
-        # Spawn dynamic traffic based on traffic_density
-        max_active_traffic = int(2 + self.traffic_density * 9)
+        # 2. Dynamic Traffic (Scales strongly with traffic_density slider)
+        # Quota: 8 at min density, 18 at medium (0.5), up to 28 at rush hour (1.0)
+        max_active_traffic = int(7 + self.traffic_density * 21)
+
+        # Ensure spawn point does not lag behind player
+        if self.next_traffic_y > player_y - 450:
+            self.next_traffic_y = player_y - 550
+
         while self.next_traffic_y > spawn_horizon and len(self.traffic) < max_active_traffic:
             ty = self.next_traffic_y
             left, right, cx, rw = self.road.get_road_edges(ty)
-            
+
             vtype = random.choices(
                 ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
                 weights=[0.24, 0.18, 0.28, 0.18, 0.12]
             )[0]
 
-            if vtype == 'TRUCK':
-                speed = random.uniform(80.0, 105.0)
-                offset = random.choice([-rw * 0.18, rw * 0.16])
-            elif vtype == 'BUS':
-                speed = random.uniform(92.0, 118.0)
-                offset = random.choice([-rw * 0.20, 0.0])
-            elif vtype == 'AUTO':
-                speed = random.uniform(98.0, 126.0)
-                offset = random.choice([-rw * 0.26, -rw * 0.12, rw * 0.20])
-            elif vtype == 'BIKE':
-                speed = random.uniform(145.0, 190.0)
-                offset = random.uniform(-rw * 0.28, rw * 0.28)
-            else: # CAR
-                speed = random.uniform(125.0, 165.0)
-                offset = random.choice([-rw * 0.22, 0.0, rw * 0.22])
+            spd, off = self._get_vehicle_spawn_params(vtype, rw)
+            tx = cx + off
+            self.traffic.append(TrafficVehicle(tx, ty, vtype, spd, off))
 
-            tx = cx + offset
-            self.traffic.append(TrafficVehicle(tx, ty, vtype, speed, offset))
-            
-            min_inv = 110.0 + (1.0 - self.traffic_density) * 260.0
-            max_inv = 200.0 + (1.0 - self.traffic_density) * 380.0
+            # Intervals scale dynamically with slider
+            min_inv = 50.0 + (1.0 - self.traffic_density) * 140.0
+            max_inv = 95.0 + (1.0 - self.traffic_density) * 230.0
             self.next_traffic_y -= random.uniform(min_inv, max_inv)
 
-        # Spawn pedestrians along shoulders
-        while self.next_pedestrian_y > spawn_horizon:
+        # 3. Independent Pedestrian Quota (Not counted as traffic)
+        if self.next_pedestrian_y > player_y - 400:
+            self.next_pedestrian_y = player_y - 500
+
+        while self.next_pedestrian_y > spawn_horizon and len(self.pedestrians) < self.max_pedestrians:
             pedy = self.next_pedestrian_y
             left, right, cx, rw = self.road.get_road_edges(pedy)
             side = random.choice([-1, 1])
-            pedx = (left - random.uniform(6, 22)) if side == -1 else (right + random.uniform(6, 22))
+            pedx = (left - random.uniform(6, 20)) if side == -1 else (right + random.uniform(6, 20))
             self.pedestrians.append(Pedestrian(pedx, pedy, side))
-            self.next_pedestrian_y -= random.uniform(170.0, 340.0)
+            self.next_pedestrian_y -= random.uniform(190.0, 340.0)
 
-        # Clean up behind player
-        despawn_y = player_y + 400
+        # 4. Cow Herds
+        if self.next_cow_y > player_y - 500:
+            self.next_cow_y = player_y - 650
 
+        while self.next_cow_y > spawn_horizon and len(self.cows) < 12:
+            self._spawn_cow_herd(self.next_cow_y, herd_id=random.randint(10, 999))
+            self.next_cow_y -= random.uniform(480.0, 850.0)
+
+        # 5. Clean up behind and far ahead of player
+        despawn_behind_y = player_y + 380
+        despawn_ahead_y = player_y - 1650
+
+        # Potholes
         remaining_potholes = []
         for p in self.potholes:
-            if p.y > despawn_y:
+            if p.y > despawn_behind_y:
                 self.potholes_avoided += 1
-            else:
+            elif p.y >= despawn_ahead_y:
                 remaining_potholes.append(p)
         self.potholes = remaining_potholes
 
+        # Traffic (Recycle both when passed or when speeding far ahead)
         remaining_traffic = []
         for t in self.traffic:
-            if t.y > despawn_y:
+            if t.y > despawn_behind_y:
                 self.traffic_overtaken += 1
-            else:
+            elif t.y >= despawn_ahead_y:
                 remaining_traffic.append(t)
         self.traffic = remaining_traffic
 
+        # Pedestrians
         remaining_pedestrians = []
         for ped in self.pedestrians:
-            if ped.y > despawn_y:
+            if ped.y > despawn_behind_y:
                 self.pedestrians_avoided += 1
-            else:
+            elif ped.y >= despawn_ahead_y:
                 remaining_pedestrians.append(ped)
         self.pedestrians = remaining_pedestrians
+
+        # Cows
+        remaining_cows = []
+        for cow in self.cows:
+            if cow.y > despawn_behind_y:
+                self.cows_navigated += 1
+            elif cow.y >= despawn_ahead_y:
+                remaining_cows.append(cow)
+        self.cows = remaining_cows
 
     def get_obstacles_in_range(self, min_y: float, max_y: float):
         p_in_range = [p for p in self.potholes if min_y <= p.y <= max_y]
         t_in_range = [t for t in self.traffic if min_y <= t.y <= max_y]
         ped_in_range = [ped for ped in self.pedestrians if min_y <= ped.y <= max_y]
-        return p_in_range, t_in_range, ped_in_range
+        cow_in_range = [cow for cow in self.cows if min_y <= cow.y <= max_y]
+        return p_in_range, t_in_range, ped_in_range, cow_in_range
 
     def draw(self, surface: pygame.Surface, camera_y: float):
         for p in self.potholes:
             p.draw(surface, camera_y)
+        for cow in self.cows:
+            cow.draw(surface, camera_y)
         for ped in self.pedestrians:
             ped.draw(surface, camera_y)
         for t in self.traffic:

@@ -51,7 +51,8 @@ class IndianHighwaySimulation:
 
         start_y = 0.0
         start_x = self.road.get_road_center(start_y)
-        self.car = AutonomousCar(start_x, start_y)
+        start_heading = self.road.get_tangent_angle(start_y)
+        self.car = AutonomousCar(start_x, start_y, start_heading)
 
         self.camera_y = start_y - SCREEN_HEIGHT * 0.72
 
@@ -220,7 +221,7 @@ class IndianHighwaySimulation:
 
     def draw_hud(self):
         """Top-left Telemetry Card."""
-        hud_w, hud_h = 390, 210
+        hud_w, hud_h = 390, 230
         hud_surf = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
         pygame.draw.rect(hud_surf, (14, 18, 24, 220), (0, 0, hud_w, hud_h), border_radius=10)
         pygame.draw.rect(hud_surf, (0, 180, 230, 120), (0, 0, hud_w, hud_h), width=2, border_radius=10)
@@ -247,9 +248,11 @@ class IndianHighwaySimulation:
              (160, 220, 255) if self.car.collisions == 0 else (255, 120, 100), self.font_medium),
             (f"Pedestrians: {self.obstacles.pedestrians_avoided} dodged | Hits: {self.car.pedestrian_bumps}",
              (255, 210, 140) if self.car.pedestrian_bumps == 0 else (255, 80, 80), self.font_medium),
+            (f"Cows: {self.obstacles.cows_navigated} navigated | Hits: {self.car.cow_bumps}",
+             (255, 235, 140) if self.car.cow_bumps == 0 else (255, 80, 80), self.font_medium),
         ]
 
-        y_offset = 10
+        y_offset = 8
         for text, color, font in lines:
             t_surf = font.render(text, True, color)
             hud_surf.blit(t_surf, (14, y_offset))
@@ -302,7 +305,7 @@ class IndianHighwaySimulation:
         dash_surf.blit(sec_title, (14, y_cur))
         y_cur += 20
 
-        threat_color = (80, 240, 120) if obs["threat"] == "CLEAR" else (255, 170, 50) if "AHEAD" in obs["threat"] else (255, 80, 80)
+        threat_color = (80, 240, 120) if obs["threat"] == "CLEAR" else (255, 175, 50) if ("COW" in obs["threat"] or "AHEAD" in obs["threat"]) else (255, 80, 80)
         t_threat = self.font_small.render(f"Focus Threat: {obs['threat']}", True, threat_color)
         dash_surf.blit(t_threat, (14, y_cur))
         

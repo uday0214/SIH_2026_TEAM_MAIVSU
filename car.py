@@ -14,12 +14,12 @@ from config import (
 )
 
 class AutonomousCar:
-    def __init__(self, start_x: float, start_y: float):
+    def __init__(self, start_x: float, start_y: float, start_heading: float = 0.0):
         self.x = start_x
         self.y = start_y
         self.speed = 0.0
         self.target_speed = PLAYER_BASE_SPEED
-        self.heading = 0.0 # radians (0 is pointing up along -Y)
+        self.heading = start_heading # Aligned with road tangent
         self.steering_angle = 0.0
         
         # Dimensions
@@ -38,8 +38,8 @@ class AutonomousCar:
 
         # AI Cognitive Dashboard: Internal Thoughts & Observations
         self.thoughts_log = [
-            ("00:00", "Sensors calibrated. A* planning lattice active.", "SYS"),
-            ("00:01", "Cruising speed engaged; scanning road boundaries.", "INFO"),
+            ("00:00", "Sensors calibrated. Road-aligned A* spatial lattice active.", "SYS"),
+            ("00:01", "Cruising speed engaged; scanning road boundaries and hazards.", "INFO"),
         ]
         self.last_thought_time = 0.0
         self.last_thought_text = ""
@@ -57,6 +57,7 @@ class AutonomousCar:
         self.pothole_bumps = 0
         self.collisions = 0
         self.pedestrian_bumps = 0
+        self.cow_bumps = 0
         self.bump_shake = 0.0
         self.is_braking = False
 
@@ -86,17 +87,17 @@ class AutonomousCar:
 
         # 1. Periodic A* Replanning
         self.replan_timer += dt
-        min_y = self.y - 450
+        min_y = self.y - 480
         max_y = self.y + 60
-        p_nearby, t_nearby, ped_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
+        p_nearby, t_nearby, ped_nearby, cow_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
 
         if self.replan_timer >= PLANNER_REPLAN_INTERVAL or not self.path:
             self.replan_timer = 0.0
-            self.path = planner.plan_path(self.x, self.y, self.speed, p_nearby, t_nearby, ped_nearby)
+            self.path = planner.plan_path(self.x, self.y, self.speed, p_nearby, t_nearby, ped_nearby, cow_nearby)
 
         # 2. Pure Pursuit Path Tracking with Realistic Steering Constraints
-        # Longer pursuit lookahead ensures gentle, realistic highway steering
-        pursuit_dist = max(65.0, min(125.0, self.speed * 0.52))
+        # Lookahead distance scales smoothly to ensure gentle highway cornering
+        pursuit_dist = max(75.0, min(145.0, 50.0 + self.speed * 0.45))
         target_pt = self._find_pursuit_target(pursuit_dist)
         self.target_waypoint = target_pt
 
@@ -169,13 +170,38 @@ class AutonomousCar:
                     self.add_thought(f"Behind slow {t.vtype} ({int(t.speed*0.28)} km/h). Seeking overtake lane.", "DECISION")
                     break
 
+            # Cow hazard cognition (predict behavior and adjust trajectory early from far off)
+            for cow in cow_nearby:
+                c_dy = self.y - cow.y
+                c_dx = abs(self.x - cow.x)
+                if 0 < c_dy < 200:
+                    if getattr(cow, 'is_resting', False):
+                        if c_dx < (self.width * 0.5 + cow.width * 0.5 + 10.0):
+                            base_auto_speed = min(base_auto_speed, 54.0)
+                            self.honk_timer = 0.35
+                            reason = "SLOWING (RESTING COW)"
+                            active_threat = "RESTING_COW"
+                            self.add_thought("Sacred cow resting in path; slowing to steer around.", "DECISION")
+                        elif c_dx < (self.width * 0.5 + cow.width * 0.5 + 32.0):
+                            base_auto_speed = min(base_auto_speed, 110.0)
+                            reason = "PASSING COW (CAUTIOUS)"
+                            active_threat = "RESTING_COW"
+                            self.add_thought("Passing resting cow cautiously in open lane.", "INFO")
+                    else:
+                        if c_dx < (self.width * 0.5 + cow.width * 0.5 + 16.0):
+                            base_auto_speed = min(base_auto_speed, 85.0)
+                            reason = "CAUTION (COW HERD)"
+                            active_threat = "COW_HERD"
+                            self.add_thought("Bovine herd grazing on shoulder; holding safe clearance.", "INFO")
+                    break
+
             self.target_speed = base_auto_speed
             self.auto_speed_reason = reason
         else:
             self.auto_speed_reason = "MANUAL SPEED"
 
         # 4. Dynamic Speed Control Execution (Capable of coming to complete rest)
-        curvature_factor = max(0.0, 1.0 - abs(angle_diff) * 1.4)
+        curvature_factor = max(0.50, 1.0 - abs(angle_diff) * 0.70)
         effective_desired = self.target_speed * curvature_factor
 
         # Close proximity collision override with complete stop at rest
@@ -202,11 +228,9 @@ class AutonomousCar:
                 is_ped_standing = getattr(ped, 'is_standing', False)
 
                 if is_ped_moving or has_row:
-                    # Pedestrian is moving/crossing: car yields right-of-way and halts
                     effective_desired = 0.0
                     self.add_thought("Yielding right-of-way to crossing pedestrian.", "DECISION")
                 elif is_ped_standing and getattr(ped, 'stand_timer', 0.0) > 0.8:
-                    # Pedestrian is holding position on shoulder/side: car proceeds past cautiously
                     effective_desired = min(effective_desired, 44.0)
                     self.add_thought("Pedestrian holding position; proceeding past cautiously.", "DECISION")
                 else:
@@ -215,6 +239,24 @@ class AutonomousCar:
                     else:
                         effective_desired = min(effective_desired, 25.0)
                 self.honk_timer = 0.35
+                break
+
+        # Bovine close-proximity stop (only stop if car directly overlaps cow in lane)
+        for cow in cow_nearby:
+            c_dy = self.y - cow.y
+            c_dx = abs(self.x - cow.x)
+            if 0 < c_dy < 80 and c_dx < (self.width * 0.5 + cow.width * 0.5 + 6.0):
+                if getattr(cow, 'is_resting', False):
+                    if c_dy < 48.0:
+                        effective_desired = 0.0 # Full stop before resting cow!
+                        self.add_thought("Resting cow blocking lane ahead. Holding full stop.", "WARN")
+                    else:
+                        effective_desired = min(effective_desired, 32.0)
+                else:
+                    if c_dy < 38.0:
+                        effective_desired = 0.0
+                    else:
+                        effective_desired = min(effective_desired, 45.0)
                 break
 
         # Pothole crossing: Never stop completely for potholes; cross at lower cautious speed
@@ -283,6 +325,13 @@ class AutonomousCar:
                 self.pedestrian_bumps += 1
                 self.add_thought("Pedestrian contact warning!", "ALERT")
 
+        # Indian Bovines (Cows)
+        for cow in getattr(obstacles, 'cows', []):
+            if not getattr(cow, 'hit', False) and abs(self.y - cow.y) < 26 and abs(self.x - cow.x) < 22:
+                cow.hit = True
+                self.cow_bumps += 1
+                self.add_thought("Contact with bovine obstacle!", "ALERT")
+
         # 8. Update Observations Telemetry
         self.observations["road_width"] = int(rw)
         self.observations["road_curve"] = round(math.degrees(road_tangent), 1)
@@ -290,7 +339,7 @@ class AutonomousCar:
         self.observations["steer_pct"] = int((self.steering_angle / PLAYER_STEER_SPEED) * 100)
         self.observations["throttle_pct"] = int((self.speed / PLAYER_MAX_SPEED) * 100) if not self.is_braking else 15
         self.observations["brake_pct"] = 85 if self.is_braking else 0
-        safety_calc = 100 - len(p_nearby) * 5 - len(t_nearby) * 6 - len(ped_nearby) * 8
+        safety_calc = 100 - len(p_nearby) * 5 - len(t_nearby) * 5 - len(ped_nearby) * 7 - len(cow_nearby) * 6
         self.observations["safety_margin"] = max(40, min(99, safety_calc))
 
     def _find_pursuit_target(self, lookahead: float) -> Tuple[float, float]:
