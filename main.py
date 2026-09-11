@@ -38,6 +38,7 @@ class IndianHighwaySimulation:
         self.paused = False
         self.show_debug = True
         self.show_dashboard = True  # Toggleable AI Thoughts & Decision Dashboard
+        self.dragging_slider = False # Mouse drag state for traffic density slider
         self.roadside_props = []
 
         self.reset()
@@ -77,10 +78,38 @@ class IndianHighwaySimulation:
         })
 
     def handle_events(self) -> bool:
-        """Processes user input events."""
+        """Processes user input and interactive slider events."""
+        dw = 360
+        dh = SCREEN_HEIGHT - 32
+        dx = SCREEN_WIDTH - dw - 16
+        dy = 16
+        slider_track_x = dx + 18
+        slider_track_y = dy + dh - 50
+        slider_track_w = 324
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
+
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1 and self.show_dashboard:
+                    mx, my = event.pos
+                    click_rect = pygame.Rect(slider_track_x - 10, slider_track_y - 12, slider_track_w + 20, 32)
+                    if click_rect.collidepoint(mx, my):
+                        self.dragging_slider = True
+                        rel = (mx - slider_track_x) / float(slider_track_w)
+                        self.obstacles.traffic_density = max(0.1, min(1.0, rel))
+
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button == 1:
+                    self.dragging_slider = False
+
+            elif event.type == pygame.MOUSEMOTION:
+                if self.dragging_slider and self.show_dashboard:
+                    mx, my = event.pos
+                    rel = (mx - slider_track_x) / float(slider_track_w)
+                    self.obstacles.traffic_density = max(0.1, min(1.0, rel))
+
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return False
@@ -92,6 +121,10 @@ class IndianHighwaySimulation:
                     self.show_dashboard = not self.show_dashboard
                 elif event.key == pygame.K_a:
                     self.car.auto_mode = not self.car.auto_mode
+                elif event.key == pygame.K_LEFTBRACKET:
+                    self.obstacles.traffic_density = max(0.1, round(self.obstacles.traffic_density - 0.1, 2))
+                elif event.key == pygame.K_RIGHTBRACKET:
+                    self.obstacles.traffic_density = min(1.0, round(self.obstacles.traffic_density + 0.1, 2))
                 elif event.key == pygame.K_r:
                     self.reset()
                 elif event.key == pygame.K_UP:
@@ -107,10 +140,10 @@ class IndianHighwaySimulation:
 
         dt = min(dt, 0.05)
 
-        # 1. Update obstacles, traffic (Truck, Bus, Car, Auto, Bike), and pedestrians
+        # 1. Update obstacles, traffic, and pedestrians
         self.obstacles.update(dt, self.car)
 
-        # 2. Update player car (A* tracking, realistic steering constraints, thoughts)
+        # 2. Update player car
         self.car.update(dt, self.road, self.obstacles, self.planner)
 
         # 3. Smooth Camera Tracking
@@ -225,14 +258,13 @@ class IndianHighwaySimulation:
         self.screen.blit(hud_surf, (16, 16))
 
         # Bottom Controls Banner
-        ctrl_w, ctrl_h = 740, 34
+        ctrl_w, ctrl_h = 760, 34
         ctrl_surf = pygame.Surface((ctrl_w, ctrl_h), pygame.SRCALPHA)
         pygame.draw.rect(ctrl_surf, (15, 20, 26, 215), (0, 0, ctrl_w, ctrl_h), border_radius=6)
-        ctrl_text = "[TAB] AI Thoughts Dashboard  |  [A] Auto Speed  |  [D] A* Debug  |  [SPACE] Pause  |  [R] Reset"
+        ctrl_text = "[TAB] Dashboard  |  [ [ / ] ] Density  |  [A] Auto Speed  |  [D] A* Debug  |  [SPACE] Pause  |  [R] Reset"
         t_ctrl = self.font_small.render(ctrl_text, True, (210, 225, 240))
-        ctrl_surf.blit(t_ctrl, (16, 10))
-        # Docked at bottom of the road driving viewport
-        self.screen.blit(ctrl_surf, (60, SCREEN_HEIGHT - 44))
+        ctrl_surf.blit(t_ctrl, (14, 10))
+        self.screen.blit(ctrl_surf, (50, SCREEN_HEIGHT - 44))
 
         if self.paused:
             pause_surf = self.font_large.render("-- SIMULATION PAUSED --", True, (255, 220, 40))
@@ -241,7 +273,7 @@ class IndianHighwaySimulation:
             self.screen.blit(pause_surf, (px, py))
 
     def draw_dashboard(self):
-        """Draws the dedicated AI Thoughts & Observation Dashboard in the right sidebar."""
+        """Draws the dedicated AI Thoughts, Actuators & Traffic Density Slider sidebar."""
         if not self.show_dashboard:
             return
 
@@ -262,7 +294,7 @@ class IndianHighwaySimulation:
 
         pygame.draw.line(dash_surf, (40, 70, 95), (14, 52), (dw - 14, 52), 1)
 
-        # Perception & Telemetry
+        # Perception & Actuators
         obs = self.car.observations
         y_cur = 60
 
@@ -328,7 +360,12 @@ class IndianHighwaySimulation:
         dash_surf.blit(dec_title, (14, y_cur))
         y_cur += 20
 
-        for time_str, text, tag in self.car.thoughts_log[-8:]:
+        # Render thoughts (leaving space for slider at bottom)
+        slider_top_y = dh - 75
+        for time_str, text, tag in self.car.thoughts_log[-7:]:
+            if y_cur >= slider_top_y - 25:
+                break
+
             if tag == "ALERT":
                 tag_col = (255, 100, 80)
             elif tag == "WARN":
@@ -348,15 +385,39 @@ class IndianHighwaySimulation:
                 dash_surf.blit(t1, (20, y_cur))
                 y_cur += 13
                 dash_surf.blit(t2, (20, y_cur))
-                y_cur += 16
+                y_cur += 15
             else:
                 t1 = self.font_small.render(text, True, (220, 230, 240))
                 dash_surf.blit(t1, (20, y_cur))
                 y_cur += 16
 
+        # Interactive Traffic Density Slider Widget (Click & Drag / Keyboard)
+        slider_y = dh - 66
+        pygame.draw.line(dash_surf, (40, 70, 95), (14, slider_y - 10), (dw - 14, slider_y - 10), 1)
+
+        d_pct = int(self.obstacles.traffic_density * 100)
+        d_status = "SPARSE" if d_pct <= 25 else "NORMAL" if d_pct <= 55 else "HIGH" if d_pct <= 80 else "RUSH HOUR"
+        t_d_label = self.font_small.render(f"TRAFFIC DENSITY: {d_pct}% [{d_status}]", True, (255, 215, 60))
+        dash_surf.blit(t_d_label, (16, slider_y - 2))
+
+        track_y = slider_y + 16
+        track_w = 324
+        track_h = 10
+        pygame.draw.rect(dash_surf, (25, 34, 46), (18, track_y, track_w, track_h), border_radius=5)
+
+        fill_w = int(self.obstacles.traffic_density * track_w)
+        pygame.draw.rect(dash_surf, (0, 220, 255), (18, track_y, fill_w, track_h), border_radius=5)
+
+        knob_x = 18 + fill_w
+        pygame.draw.circle(dash_surf, (255, 255, 255), (knob_x, track_y + 5), 7)
+        pygame.draw.circle(dash_surf, (0, 220, 255), (knob_x, track_y + 5), 9, width=2)
+
+        t_hint = self.font_small.render("[ [ / ] ] Keys or Click & Drag Slider", True, (140, 175, 200))
+        dash_surf.blit(t_hint, (16, track_y + 16))
+
         self.screen.blit(dash_surf, (dx, dy))
 
-    def run(self, max_frames: int = None):
+    def run(self, max_frames: int = None, screenshot_path: str = None):
         running = True
         frames = 0
 
@@ -380,6 +441,10 @@ class IndianHighwaySimulation:
             if max_frames and frames >= max_frames:
                 break
 
+        if screenshot_path:
+            pygame.image.save(self.screen, screenshot_path)
+            print(f"Screenshot saved to {screenshot_path}")
+
         pygame.quit()
 
 
@@ -388,8 +453,13 @@ if __name__ == "__main__":
     sim = IndianHighwaySimulation(headless=is_headless)
     
     max_f = None
+    save_img = None
     for arg in sys.argv:
         if arg.startswith("--frames="):
             max_f = int(arg.split("=")[1])
+        elif arg.startswith("--save-screenshot="):
+            save_img = arg.split("=")[1]
+        elif arg == "--save-screenshot":
+            save_img = "simulation_preview.png"
 
-    sim.run(max_frames=max_f)
+    sim.run(max_frames=max_f, screenshot_path=save_img)

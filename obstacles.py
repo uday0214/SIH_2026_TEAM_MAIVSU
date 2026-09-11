@@ -88,12 +88,14 @@ class Pedestrian:
         self.cross_timer = random.uniform(1.5, 5.5)
         self.walk_phase = random.uniform(0.0, 6.28)
 
+        # Deadlock resolution state:
+        self.is_standing = False
+        self.is_moving = True
+        self.stand_timer = 0.0
+        self.has_right_of_way = False
+
     def update(self, dt: float, road, traffic=None, player_car=None):
         left, right, cx, rw = road.get_road_edges(self.y)
-
-        # 1. Self-preservation: Detect approaching vehicles to stop or avert
-        is_threatened = False
-        scramble_dx = 0.0
 
         vehicles_to_check = []
         if traffic:
@@ -101,31 +103,61 @@ class Pedestrian:
         if player_car:
             vehicles_to_check.append(player_car)
 
+        # 1. Threat & Proximity Assessment
+        approaching_fast_threat = False
+        yielding_vehicle_present = False
+        closest_yielding_v = None
+        scramble_dx = 0.0
+
         for v in vehicles_to_check:
             dy = v.y - self.y # positive if vehicle is south approaching north
             dx = abs(v.x - self.x)
-            if 0 < dy < 95 and dx < (v.width * 0.5 + 24.0):
-                is_threatened = True
-                if dy < 48.0 and dx < (v.width * 0.5 + 16.0):
-                    # Immediate danger! Scramble/avert sideways towards closest shoulder
-                    dist_to_left = abs(self.x - left)
-                    dist_to_right = abs(self.x - right)
-                    step_dir = -1.0 if dist_to_left < dist_to_right else 1.0
-                    scramble_dx = step_dir * 70.0
-                break
+            if 0 < dy < 110 and dx < (v.width * 0.5 + 26.0):
+                if v.speed > 22.0:
+                    approaching_fast_threat = True
+                    if dy < 45.0 and dx < (v.width * 0.5 + 16.0):
+                        dist_to_left = abs(self.x - left)
+                        dist_to_right = abs(self.x - right)
+                        step_dir = -1.0 if dist_to_left < dist_to_right else 1.0
+                        scramble_dx = step_dir * 75.0
+                    break
+                else:
+                    # Vehicle is stopping / yielding!
+                    yielding_vehicle_present = True
+                    closest_yielding_v = v
 
-        # If immediately threatened, actively avert/scramble
         if scramble_dx != 0.0:
             self.x += scramble_dx * dt
             self.walk_phase += dt * 12.0
+            self.is_moving = True
+            self.is_standing = False
             return
 
-        # If vehicle is approaching, stop in tracks and wait
-        if is_threatened:
-            return
+        # 2. Deadlock Resolution Protocol (Biased toward pedestrian moving first)
+        if self.state == 'CROSSING':
+            if approaching_fast_threat and not self.has_right_of_way:
+                self.is_standing = True
+                self.is_moving = False
+                self.stand_timer += dt
+                return
 
-        # 2. Normal walking progression when safe
-        self.walk_phase += dt * 8.0
+            if yielding_vehicle_present or self.stand_timer > 0.45:
+                # Vehicle yielded or stopped: take right of way and cross first!
+                self.has_right_of_way = True
+                self.is_standing = False
+                self.is_moving = True
+                self.stand_timer = 0.0
+                
+                if closest_yielding_v and abs(self.x - closest_yielding_v.x) > (closest_yielding_v.width * 0.5 + 24.0):
+                    self.has_right_of_way = False
+        else:
+            self.is_standing = False
+            self.is_moving = True
+            self.stand_timer = 0.0
+
+        # 3. Walking progression (brisk crossing pace when taking right-of-way)
+        pace_multiplier = 1.35 if self.has_right_of_way else 1.0
+        self.walk_phase += dt * 8.0 * pace_multiplier
 
         if self.state == 'WALKING_SHOULDER':
             self.cross_timer -= dt
@@ -137,16 +169,18 @@ class Pedestrian:
                 self.state = 'CROSSING'
 
         elif self.state == 'CROSSING':
-            self.x += self.cross_speed_x * dt
+            self.x += self.cross_speed_x * pace_multiplier * dt
             self.y += (self.walk_speed_y * 0.35) * dt
 
             if self.side == -1 and self.x > right + 18:
                 self.side = 1
                 self.state = 'WALKING_SHOULDER'
+                self.has_right_of_way = False
                 self.cross_timer = random.uniform(6.0, 12.0)
             elif self.side == 1 and self.x < left - 18:
                 self.side = -1
                 self.state = 'WALKING_SHOULDER'
+                self.has_right_of_way = False
                 self.cross_timer = random.uniform(6.0, 12.0)
 
     def get_bounding_radius(self) -> float:
@@ -476,6 +510,7 @@ class ObstacleManager:
         self.next_pothole_y = -180
         self.next_traffic_y = -300
         self.next_pedestrian_y = -220
+        self.traffic_density = 0.5 # 0.1 (Sparse) to 1.0 (Rush Hour)
 
         self.potholes_avoided = 0
         self.traffic_overtaken = 0
@@ -525,8 +560,9 @@ class ObstacleManager:
             # Reduced spawn frequency (260 - 580 px)
             self.next_pothole_y -= random.uniform(260.0, 580.0)
 
-        # Spawn dynamic traffic
-        while self.next_traffic_y > spawn_horizon:
+        # Spawn dynamic traffic based on traffic_density
+        max_active_traffic = int(2 + self.traffic_density * 9)
+        while self.next_traffic_y > spawn_horizon and len(self.traffic) < max_active_traffic:
             ty = self.next_traffic_y
             left, right, cx, rw = self.road.get_road_edges(ty)
             
@@ -553,7 +589,10 @@ class ObstacleManager:
 
             tx = cx + offset
             self.traffic.append(TrafficVehicle(tx, ty, vtype, speed, offset))
-            self.next_traffic_y -= random.uniform(230.0, 440.0)
+            
+            min_inv = 110.0 + (1.0 - self.traffic_density) * 260.0
+            max_inv = 200.0 + (1.0 - self.traffic_density) * 380.0
+            self.next_traffic_y -= random.uniform(min_inv, max_inv)
 
         # Spawn pedestrians along shoulders
         while self.next_pedestrian_y > spawn_horizon:

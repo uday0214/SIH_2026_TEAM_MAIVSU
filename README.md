@@ -14,28 +14,37 @@ A pure Pygame 2D simulation with **zero external backend or machine learning dep
      - Live actuator readouts: Steer intent dual slider (`LEFT` / `RIGHT` / `CENTER`), throttle and brake meters.
      - Internal Deliberation Stream: Live scrolling thought log documenting the vehicle's situational reasoning.
 
-2. **Smart Pedestrian Behavior (Self-Preservation, Stopping & Averting)**:
-   - Pedestrians detect approaching vehicles (both player and NPC traffic).
-   - If a vehicle approaches on a crossing trajectory, pedestrians **stop in their tracks** and wait for the vehicle to pass.
-   - If in immediate proximity or danger, pedestrians actively **scramble and avert** sideways back toward the nearest shoulder.
+2. **Pedestrian & Vehicle Deadlock Resolution**:
+   - Both pedestrian and vehicle communicate intent through kinematic perception.
+   - When facing each other at a standstill, the system resolves deadlocks with a **pedestrian-first bias**:
+     - The pedestrian detects when the vehicle yields/stops (`v.speed < 22 px/s` or after brief pause) and takes right-of-way, accelerating briskly across to clear the road.
+     - The vehicle senses whether the pedestrian is standing or actively moving (`ped.is_moving`), patiently holding its stop until the pedestrian reaches safety, and only proceeding once the path is clear.
+   - Pedestrians also feature self-preservation: stopping in their tracks if a fast vehicle approaches or averting sideways toward the nearest shoulder.
 
-3. **Intelligent Pothole Crossing vs Solid Obstacle Stopping**:
-   - **Solid Obstacles (Vehicles & Pedestrians)**: The car detects forward blocking vehicles and crossing pedestrians, and will come to a **complete stop at rest (`0 km/h`)** with rear brake lights engaged until the path clears.
-   - **Potholes**: Rather than treating potholes as impassable barriers that cause deadlocks, the A* planner heavily penalizes them to prioritize weaving around. If a pothole is completely unavoidable (e.g. in a narrow choke point), the vehicle **does not stop**; it crawls across cautiously at reduced speed (~20–25 km/h).
+3. **Interactive Traffic Density Slider**:
+   - Integrated directly at the bottom of the AI sidebar.
+   - Adjust density continuously from **0% (empty open road)** to **100% (rush-hour congestion)**.
+   - Interactive via **Mouse Click & Drag** on the slider track or using keyboard shortcuts **`[`** (decrease) / **`]`** (increase).
 
-4. **Realistic Traffic Management (Zero Offroad & Collision Avoidance)**:
+4. **Intelligent Pothole Crossing vs Solid Obstacle Stopping**:
+   - **Solid Obstacles (Vehicles & Pedestrians)**: The car detects forward blocking vehicles and crossing pedestrians, coming to a **complete stop at rest (`0 km/h`)** with rear brake lights engaged until the path clears.
+   - **Potholes**: Rather than treating potholes as impassable barriers that cause deadlocks, the A* planner assigns them finite penalty costs. If a pothole is completely unavoidable (e.g. in a narrow choke point), the vehicle **crawls across cautiously at reduced speed (~20–25 km/h)** instead of stalling.
+
+5. **Realistic Traffic Management (Zero Offroad & Collision Avoidance)**:
    - NPC vehicles (Trucks, Buses, Cars, Autos, Bikes) are strictly clamped to the asphalt road and maintain headway following distances so they do not rear-end each other or the player car.
 
-5. **Dynamic Potholes**:
+6. **Dynamic Potholes**:
    - Frequency reduced by ~55% with dynamically generated sizes: small surface dips (8–14 px), medium craters (17–26 px), and large trenches (32–48 px).
 
 ---
 
 ## 🎮 Controls
 
-| Key | Action |
+| Key / Input | Action |
 |---|---|
 | **`TAB`** / **`T`** | **Toggle AI Cognitive Dashboard Sidebar** |
+| **`[` / `]`** | **Decrease / Increase Traffic Density** (10% steps) |
+| **Mouse Click & Drag** | **Adjust Traffic Density Slider** directly |
 | **`A`** | **Toggle Auto-Speed Mode** (Adaptive Situational Speed vs Manual) |
 | **`D`** | **Toggle A\* Search Overlay** (Explored nodes, hazard cells, waypoints) |
 | **`SPACE`** | **Pause / Resume** simulation |

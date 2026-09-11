@@ -196,12 +196,24 @@ class AutonomousCar:
         for ped in ped_nearby:
             p_dy = self.y - ped.y
             p_dx = abs(self.x - ped.x)
-            if 0 < p_dy < 80 and p_dx < 36:
-                if p_dy < 42.0:
-                    effective_desired = 0.0 # Full stop for pedestrian!
-                    self.add_thought("Pedestrian directly in path! Emergency stop at rest.", "ALERT")
+            if 0 < p_dy < 85 and p_dx < (self.width * 0.5 + ped.radius + 18.0):
+                is_ped_moving = getattr(ped, 'is_moving', True)
+                has_row = getattr(ped, 'has_right_of_way', False)
+                is_ped_standing = getattr(ped, 'is_standing', False)
+
+                if is_ped_moving or has_row:
+                    # Pedestrian is moving/crossing: car yields right-of-way and halts
+                    effective_desired = 0.0
+                    self.add_thought("Yielding right-of-way to crossing pedestrian.", "DECISION")
+                elif is_ped_standing and getattr(ped, 'stand_timer', 0.0) > 0.8:
+                    # Pedestrian is holding position on shoulder/side: car proceeds past cautiously
+                    effective_desired = min(effective_desired, 44.0)
+                    self.add_thought("Pedestrian holding position; proceeding past cautiously.", "DECISION")
                 else:
-                    effective_desired = min(effective_desired, 25.0)
+                    if p_dy < 42.0:
+                        effective_desired = 0.0
+                    else:
+                        effective_desired = min(effective_desired, 25.0)
                 self.honk_timer = 0.35
                 break
 
