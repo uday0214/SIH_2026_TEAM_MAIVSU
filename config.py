@@ -40,8 +40,11 @@ PLAYER_MAX_SPEED = 290                 # Max speed on open clear roads
 PLAYER_MIN_SPEED = 50                  # Minimum crawl speed
 PLAYER_ACCEL = 160                     # Acceleration rate px/s^2
 PLAYER_DECEL = 290                     # Braking rate px/s^2
-PLAYER_STEER_SPEED = 2.5               # Controlled max turning radians/s (controlled steering constraint)
-PLAYER_STEER_DAMPING = 0.85            # Inertial heading smoothing
+
+# Realistic Steering Constraints
+PLAYER_STEER_SPEED = 1.45              # Max angular turning speed (rad/s) - realistic highway steering
+MAX_STEER_DEVIATION = 0.38             # Max allowable heading angle deviation from road tangent (~21 deg)
+PLAYER_STEER_DAMPING = 0.88            # Inertial heading smoothing
 
 # A* Planner Parameters
 PLANNER_CELL_SIZE = 16                 # Grid resolution (pixels per cell)
@@ -54,8 +57,8 @@ SAFETY_MARGIN_PEDESTRIAN = 18          # Buffer distance around pedestrians
 
 # Obstacle Generation
 POTHOLE_SPAWN_INTERVAL = (90, 220)     # Vertical distance between potholes
-TRAFFIC_SPAWN_INTERVAL = (220, 480)    # Vertical distance between traffic cars
+TRAFFIC_SPAWN_INTERVAL = (200, 420)    # Vertical distance between traffic cars
 PEDESTRIAN_SPAWN_INTERVAL = (140, 310) # Vertical distance between pedestrians
-MAX_TRAFFIC_AHEAD = 6
+MAX_TRAFFIC_AHEAD = 7
 MAX_POTHOLES_AHEAD = 12
 MAX_PEDESTRIANS_AHEAD = 8

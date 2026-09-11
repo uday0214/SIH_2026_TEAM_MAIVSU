@@ -187,16 +187,16 @@ class AStarPlanner:
         best_progress_r = start_row
 
         # Constrained forward driving moves:
-        # Heavier penalty on sharp lateral steps prevents erratic zig-zagging
+        # Enforces forward progress and natural steering curves
         moves = [
             (0, 1, 1.0),      # Straight forward (most preferred)
-            (-1, 1, 1.55),    # Gentle left
-            (1, 1, 1.55),     # Gentle right
-            (0, 2, 2.0),      # Cruising forward
-            (-1, 2, 2.2),     # Gradual left forward
-            (1, 2, 2.2),      # Gradual right forward
-            (-2, 1, 4.2),     # Sharp swerve left (penalized, used only if blocked)
-            (2, 1, 4.2),      # Sharp swerve right (penalized, used only if blocked)
+            (0, 2, 1.8),      # Fast forward
+            (-1, 2, 2.1),     # Gradual left forward
+            (1, 2, 2.1),      # Gradual right forward
+            (-1, 1, 2.4),     # Controlled left
+            (1, 1, 2.4),      # Controlled right
+            (-1, 3, 2.8),     # Forward sweeping left
+            (1, 3, 2.8),      # Forward sweeping right
         ]
 
         max_iterations = 600
