@@ -6,7 +6,27 @@ A pure Pygame 2D simulation with **zero external backend or machine learning dep
 
 ## 🌟 Key Features
 
-1. **Road-Aligned A\* Path Tracer (Curvature Direction Tracking)**:
+1. **360° Circular Disc Sensor & AI Radar HUD**:
+   - Omnidirectional perception disc with 3 concentric safety zones:
+     - **Critical Core ($R = 46$ px)**: Immediate safety bubble that triggers automated emergency braking for solid collision hazards.
+     - **Caution Ring ($R = 105$ px)**: Reactive zone providing continuous lateral repulsion steering (`repulsion_steer`) to smoothly nudge the vehicle away from flank obstacles.
+     - **Perception Disc ($R = 180$ px)**: Wide-angle situational awareness across 8 radial sectors (`FRONT`, `FR`, `RIGHT`, `RR`, `REAR`, `RL`, `LEFT`, `FL`).
+   - Visually renders concentric zones, a rotating radar beam, pulsing sensor rings, and contact blip dots on the road.
+   - Embeds a real-time **360° mini radar HUD** inside the AI Cognitive Dashboard displaying sensor status, closest threat distance, and lateral repulsion percentages.
+
+2. **Cows Motivated by Horns & Deadlocks**:
+   - Cows react dynamically to acoustic horn pulses (within 210 px) and stopped vehicle deadlocks.
+   - When honked at or blocked, resting cows stand up, perk their ears, display an alert badge (`!`), and walk out of the drivable road lanes toward the shoulder (`state = 'CLEARING_ROAD'`).
+   - Autonomous vehicles and traffic vehicles automatically pulse their horns when blocked by bovine obstacles, smoothly clearing traffic jams.
+
+3. **Strict Safe Distance Cushion Between All Entities**:
+   - All vehicles maintain generous headway safety cushions:
+     - Vehicle-to-vehicle: 34 px bumper safety margin.
+     - Vehicle-to-pedestrian: 50 px margin.
+     - Vehicle-to-cow: 60 px margin.
+   - Traffic vehicles stop smoothly behind obstacles, preventing vehicle-vehicle and vehicle-pedestrian collisions.
+
+4. **Road-Aligned A\* Path Tracer (Curvature Direction Tracking)**:
    - Built on a moving **Frenet spatial lattice** parameterized by longitudinal progress along the road and lateral offset from the road centerline.
    - Forward search transitions naturally follow the road's organic curve tangent.
    - The active path tracer line **points directly in the direction of the road** ahead, curving through bends and swerves rather than pointing straight up to the window top.

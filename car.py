@@ -13,6 +13,227 @@ from config import (
     PLANNER_REPLAN_INTERVAL
 )
 
+class CircularDiscSensor:
+    """
+    Omnidirectional 360° Circular Disc Sensor Field.
+    Provides immediate reflexive awareness, sector-based threat localization,
+    reactive lateral repulsion away from flank hazards, and automated directional horn.
+    """
+    SECTORS = ['FRONT', 'FR', 'RIGHT', 'RR', 'REAR', 'RL', 'LEFT', 'FL']
+
+    def __init__(self):
+        self.r_inner = 46.0   # Critical Core (Emergency reflex stop)
+        self.r_mid = 105.0    # Caution Buffer (Repulsive steering & easing)
+        self.r_outer = 180.0  # Perception Disc (Scanning radar)
+
+        self.sector_distances = {s: 180.0 for s in self.SECTORS}
+        self.sector_threats = {s: 'CLEAR' for s in self.SECTORS}
+        self.sector_points = {s: None for s in self.SECTORS}
+
+        self.sweep_angle = 0.0
+        self.pulse_phase = 0.0
+        self.critical_breached = False
+        self.repulsion_steer = 0.0
+        self.nearest_dist = 180.0
+        self.nearest_threat = 'CLEAR'
+
+    def update(self, car, road, obstacles, dt: float):
+        self.sweep_angle = (self.sweep_angle + dt * 4.6) % (2 * math.pi)
+        self.pulse_phase = (self.pulse_phase + dt * 2.6) % 1.0
+
+        for s in self.SECTORS:
+            self.sector_distances[s] = self.r_outer
+            self.sector_threats[s] = 'CLEAR'
+            self.sector_points[s] = None
+
+        min_y = car.y - self.r_outer - 25.0
+        max_y = car.y + self.r_outer + 25.0
+        p_nearby, t_nearby, ped_nearby, cow_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
+
+        # Collect candidate proximity contact points
+        contacts = []
+
+        for t in t_nearby:
+            contacts.append((t.x, t.y, f"TRAFFIC_{t.vtype}", t.width * 0.45))
+        for ped in ped_nearby:
+            contacts.append((ped.x, ped.y, 'PEDESTRIAN', ped.radius))
+        for cow in cow_nearby:
+            contacts.append((cow.x, cow.y, 'COW', cow.radius))
+        for p in p_nearby:
+            contacts.append((p.x, p.y, 'POTHOLE', p.effective_radius))
+
+        # Road boundaries
+        for sample_y in [car.y - 75.0, car.y, car.y + 75.0]:
+            left, right, _, _ = road.get_road_edges(sample_y)
+            contacts.append((left, sample_y, 'ROAD_EDGE', 6.0))
+            contacts.append((right, sample_y, 'ROAD_EDGE', 6.0))
+
+        nearest_d = self.r_outer
+        nearest_t = 'CLEAR'
+
+        for ox, oy, otype, rad in contacts:
+            dx = ox - car.x
+            dy = oy - car.y
+            raw_dist = math.hypot(dx, dy)
+            eff_dist = max(0.0, raw_dist - rad)
+
+            if eff_dist < self.r_outer:
+                # Calculate relative bearing angle relative to car heading
+                abs_ang = math.atan2(dx, -dy)
+                rel_ang = (abs_ang - car.heading + math.pi) % (2 * math.pi) - math.pi
+                deg = math.degrees(rel_ang)
+
+                # Map to 8 radial sectors
+                if -22.5 <= deg < 22.5:
+                    sec = 'FRONT'
+                elif 22.5 <= deg < 67.5:
+                    sec = 'FR'
+                elif 67.5 <= deg < 112.5:
+                    sec = 'RIGHT'
+                elif 112.5 <= deg < 157.5:
+                    sec = 'RR'
+                elif deg >= 157.5 or deg < -157.5:
+                    sec = 'REAR'
+                elif -157.5 <= deg < -112.5:
+                    sec = 'RL'
+                elif -112.5 <= deg < -67.5:
+                    sec = 'LEFT'
+                else:
+                    sec = 'FL'
+
+                if eff_dist < self.sector_distances[sec]:
+                    self.sector_distances[sec] = eff_dist
+                    self.sector_threats[sec] = otype
+                    self.sector_points[sec] = (ox, oy)
+
+                if eff_dist < nearest_d:
+                    nearest_d = eff_dist
+                    nearest_t = otype
+
+        self.nearest_dist = nearest_d
+        self.nearest_threat = nearest_t
+
+        # 1. Critical core breach check (emergency stop threshold for solid collision obstacles: traffic, peds, cows)
+        self.critical_breached = any(
+            self.sector_distances[s] < self.r_inner and self.sector_threats[s] not in ['CLEAR', 'POTHOLE', 'ROAD_EDGE']
+            for s in self.SECTORS
+        )
+
+        # 2. Reactive lateral repulsion away from flank hazards
+        d_left = min(self.sector_distances['LEFT'], self.sector_distances['FL'], self.sector_distances['RL'])
+        d_right = min(self.sector_distances['RIGHT'], self.sector_distances['FR'], self.sector_distances['RR'])
+
+        rep_left = max(0.0, (self.r_mid - d_left) / self.r_mid) if d_left < self.r_mid else 0.0
+        rep_right = max(0.0, (self.r_mid - d_right) / self.r_mid) if d_right < self.r_mid else 0.0
+        # Positive repulsion steers right; negative steers left
+        self.repulsion_steer = (rep_left - rep_right) * 0.40
+
+        # 3. Automated directional horn trigger (alerts cows and pedestrians to clear out of the way)
+        front_d = min(self.sector_distances['FRONT'], self.sector_distances['FL'], self.sector_distances['FR'])
+        front_threat = self.sector_threats['FRONT']
+        if ('COW' in front_threat or 'PEDESTRIAN' in front_threat) and front_d < 145.0:
+            if car.honk_timer <= 0.05:
+                car.honk_timer = 0.45
+                if 'COW' in front_threat:
+                    car.add_thought("SENSOR DISC: Bovine obstacle in front sector; pulsing horn.", "WARN")
+                else:
+                    car.add_thought("SENSOR DISC: Pedestrian proximity breach; sounding horn warning.", "WARN")
+
+    def draw_world(self, surface: pygame.Surface, car, camera_y: float):
+        sy = car.y - camera_y
+        h = surface.get_height()
+        if sy < -self.r_outer or sy > h + self.r_outer:
+            return
+
+        cx = int(car.x)
+        cy = int(sy)
+
+        disc_size = int(self.r_outer * 2 + 10)
+        disc_surf = pygame.Surface((disc_size, disc_size), pygame.SRCALPHA)
+        dcx = disc_size // 2
+        dcy = disc_size // 2
+
+        # 1. Outer Perception Disc (Transparent Cyan Field)
+        pygame.draw.circle(disc_surf, (0, 225, 255, 18), (dcx, dcy), int(self.r_outer))
+        pygame.draw.circle(disc_surf, (0, 220, 255, 60), (dcx, dcy), int(self.r_outer), width=1)
+
+        # 2. Caution Buffer Disc (Soft Amber)
+        pygame.draw.circle(disc_surf, (255, 200, 40, 22), (dcx, dcy), int(self.r_mid))
+        pygame.draw.circle(disc_surf, (255, 200, 40, 75), (dcx, dcy), int(self.r_mid), width=1)
+
+        # 3. Critical Core Safety Bubble (Red alert if breached)
+        core_alpha = 90 if self.critical_breached else 25
+        pygame.draw.circle(disc_surf, (255, 50, 50, core_alpha), (dcx, dcy), int(self.r_inner))
+        pygame.draw.circle(disc_surf, (255, 50, 50, 140 if self.critical_breached else 60), (dcx, dcy), int(self.r_inner), width=2 if self.critical_breached else 1)
+
+        # 4. Pulsing Wave Ring
+        pulse_r = int(self.r_inner + self.pulse_phase * (self.r_outer - self.r_inner))
+        pulse_alpha = int(70 * (1.0 - self.pulse_phase))
+        pygame.draw.circle(disc_surf, (0, 240, 255, pulse_alpha), (dcx, dcy), pulse_r, width=1)
+
+        # 5. Rotating Radar Sweep Beam
+        beam_len = self.r_outer - 4
+        sw_x = dcx + math.sin(self.sweep_angle) * beam_len
+        sw_y = dcy - math.cos(self.sweep_angle) * beam_len
+        pygame.draw.line(disc_surf, (180, 255, 255, 130), (dcx, dcy), (int(sw_x), int(sw_y)), 2)
+
+        # Trailing sweep glow
+        trail_angle = self.sweep_angle - 0.25
+        tr_x = dcx + math.sin(trail_angle) * beam_len * 0.95
+        tr_y = dcy - math.cos(trail_angle) * beam_len * 0.95
+        pygame.draw.polygon(disc_surf, (0, 230, 255, 30), [(dcx, dcy), (int(sw_x), int(sw_y)), (int(tr_x), int(tr_y))])
+
+        # 6. Sector Contact Blips
+        for sec, pt in self.sector_points.items():
+            if pt is not None and self.sector_distances[sec] < self.r_outer:
+                bdx = pt[0] - car.x
+                bdy = pt[1] - car.y
+                bx = int(dcx + bdx)
+                by = int(dcy + bdy)
+                if 0 <= bx < disc_size and 0 <= by < disc_size:
+                    dist = self.sector_distances[sec]
+                    b_col = (255, 60, 60) if dist < self.r_inner else (255, 200, 40) if dist < self.r_mid else (0, 235, 255)
+                    pygame.draw.circle(disc_surf, b_col, (bx, by), 4)
+                    pygame.draw.circle(disc_surf, (255, 255, 255), (bx, by), 6, width=1)
+
+        surface.blit(disc_surf, (cx - dcx, cy - dcy))
+
+    def draw_radar_hud(self, surface: pygame.Surface, cx: int, cy: int, radius: int = 54):
+        """Draws a circular 360° radar display for the AI sidebar dashboard."""
+        pygame.draw.circle(surface, (15, 24, 34), (cx, cy), radius)
+        pygame.draw.circle(surface, (0, 180, 230), (cx, cy), radius, width=2)
+        pygame.draw.circle(surface, (255, 200, 40), (cx, cy), int(radius * 0.60), width=1)
+        pygame.draw.circle(surface, (255, 60, 60), (cx, cy), int(radius * 0.28), width=1)
+
+        # Crosshairs
+        pygame.draw.line(surface, (40, 70, 95), (cx - radius, cy), (cx + radius, cy), 1)
+        pygame.draw.line(surface, (40, 70, 95), (cx, cy - radius), (cx, cy + radius), 1)
+
+        # Sweeping radar line
+        sw_x = cx + math.sin(self.sweep_angle) * (radius - 2)
+        sw_y = cy - math.cos(self.sweep_angle) * (radius - 2)
+        pygame.draw.line(surface, (0, 240, 255), (cx, cy), (int(sw_x), int(sw_y)), 2)
+
+        # Plot contact dots
+        for sec, dist in self.sector_distances.items():
+            if dist < self.r_outer and self.sector_threats[sec] != 'CLEAR':
+                ratio = dist / self.r_outer
+                r_dist = int(ratio * (radius - 4))
+                # Approximate bearing of sector
+                sec_angles = {
+                    'FRONT': 0.0, 'FR': 0.78, 'RIGHT': 1.57, 'RR': 2.36,
+                    'REAR': 3.14, 'RL': -2.36, 'LEFT': -1.57, 'FL': -0.78
+                }
+                ang = sec_angles.get(sec, 0.0)
+                px = cx + math.sin(ang) * r_dist
+                py = cy - math.cos(ang) * r_dist
+                p_col = (255, 60, 60) if dist < self.r_inner else (255, 200, 40) if dist < self.r_mid else (0, 220, 255)
+                pygame.draw.circle(surface, p_col, (int(px), int(py)), 3)
+
+        # Car icon in center
+        pygame.draw.rect(surface, (0, 220, 255), (cx - 3, cy - 5, 6, 10), border_radius=2)
+
+
 class AutonomousCar:
     def __init__(self, start_x: float, start_y: float, start_heading: float = 0.0):
         self.x = start_x
@@ -26,6 +247,9 @@ class AutonomousCar:
         self.width = PLAYER_WIDTH
         self.length = PLAYER_LENGTH
 
+        # 360° Circular Disc Sensor Field
+        self.sensor = CircularDiscSensor()
+
         # A* Path tracking
         self.path: List[Tuple[float, float]] = []
         self.target_waypoint: Tuple[float, float] = (start_x, start_y - 60)
@@ -38,7 +262,7 @@ class AutonomousCar:
 
         # AI Cognitive Dashboard: Internal Thoughts & Observations
         self.thoughts_log = [
-            ("00:00", "Sensors calibrated. Road-aligned A* spatial lattice active.", "SYS"),
+            ("00:00", "Sensors calibrated. Circular Disc Sensor active.", "SYS"),
             ("00:01", "Cruising speed engaged; scanning road boundaries and hazards.", "INFO"),
         ]
         self.last_thought_time = 0.0
@@ -50,7 +274,10 @@ class AutonomousCar:
             "steer_pct": 0,
             "throttle_pct": 0,
             "brake_pct": 0,
-            "safety_margin": 98
+            "safety_margin": 98,
+            "sensor_dist": 180,
+            "sensor_threat": "CLEAR",
+            "critical_breached": False
         }
 
         # State & Feedback
@@ -91,6 +318,9 @@ class AutonomousCar:
         max_y = self.y + 60
         p_nearby, t_nearby, ped_nearby, cow_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
 
+        # 360° Circular Disc Sensor update
+        self.sensor.update(self, road, obstacles, dt)
+
         if self.replan_timer >= PLANNER_REPLAN_INTERVAL or not self.path:
             self.replan_timer = 0.0
             self.path = planner.plan_path(self.x, self.y, self.speed, p_nearby, t_nearby, ped_nearby, cow_nearby)
@@ -106,8 +336,9 @@ class AutonomousCar:
         desired_heading = math.atan2(dx, -dy)
 
         # Reduced turning rate and steering inertia (Realistic heavy vehicle steering)
+        # Apply circular disc lateral repulsion steering for reactive reflex avoidance
         angle_diff = (desired_heading - self.heading + math.pi) % (2 * math.pi) - math.pi
-        target_steer = max(-PLAYER_STEER_SPEED, min(PLAYER_STEER_SPEED, angle_diff * 1.8))
+        target_steer = max(-PLAYER_STEER_SPEED, min(PLAYER_STEER_SPEED, angle_diff * 1.8 + self.sensor.repulsion_steer))
         self.steering_angle += (target_steer - self.steering_angle) * min(1.0, 3.8 * dt)
         self.heading += self.steering_angle * dt
 
@@ -272,6 +503,14 @@ class AutonomousCar:
                     self.add_thought("Approaching unavoidable pothole; crossing at reduced speed.", "DECISION")
                 break
 
+        # Circular Disc Sensor emergency stop override
+        if self.sensor.critical_breached:
+            breach_threat = next((self.sensor.sector_threats[s] for s in self.sensor.SECTORS if self.sensor.sector_distances[s] < self.sensor.r_inner and self.sensor.sector_threats[s] not in ['CLEAR', 'POTHOLE', 'ROAD_EDGE']), 'OBSTACLE')
+            effective_desired = 0.0
+            if self.auto_mode:
+                self.auto_speed_reason = f"SENSOR STOP ({breach_threat})"
+            self.add_thought(f"SENSOR DISC: Critical safety bubble breached ({breach_threat})! Full stop.", "ALERT")
+
         if self.honk_timer > 0:
             self.honk_timer -= dt
 
@@ -341,6 +580,10 @@ class AutonomousCar:
         self.observations["brake_pct"] = 85 if self.is_braking else 0
         safety_calc = 100 - len(p_nearby) * 5 - len(t_nearby) * 5 - len(ped_nearby) * 7 - len(cow_nearby) * 6
         self.observations["safety_margin"] = max(40, min(99, safety_calc))
+        self.observations["sensor_dist"] = int(self.sensor.nearest_dist)
+        self.observations["sensor_threat"] = self.sensor.nearest_threat
+        self.observations["sensor_status"] = "ALERT" if self.sensor.critical_breached else ("CAUTION" if self.sensor.nearest_dist < self.sensor.r_mid else "CLEAR")
+        self.observations["critical_breached"] = self.sensor.critical_breached
 
     def _find_pursuit_target(self, lookahead: float) -> Tuple[float, float]:
         """Finds point on A* path ahead of vehicle by lookahead distance."""
@@ -368,6 +611,9 @@ class AutonomousCar:
 
         draw_x = self.x + shake_x
         draw_y = sy + shake_y
+
+        # Draw 360° Circular Disc Sensor Field on Road
+        self.sensor.draw_world(surface, self, camera_y)
 
         # Headlight beam projection
         beam_length = 190

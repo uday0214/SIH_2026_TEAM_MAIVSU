@@ -353,15 +353,44 @@ class IndianHighwaySimulation:
         pygame.draw.rect(dash_surf, (30, 40, 50), (286, y_cur + 2, 64, bar_h), border_radius=3)
         if brk_pct > 0:
             pygame.draw.rect(dash_surf, (255, 60, 50), (286, y_cur + 2, int(64 * (brk_pct/100.0)), bar_h), border_radius=3)
-        y_cur += 28
+        y_cur += 24
+
+        # 360° Circular Disc Sensor Radar Widget
+        pygame.draw.line(dash_surf, (40, 70, 95), (14, y_cur), (dw - 14, y_cur), 1)
+        y_cur += 8
+
+        radar_title = self.font_medium.render("360° SENSOR DISC RADAR", True, (0, 225, 255))
+        dash_surf.blit(radar_title, (14, y_cur))
+        y_cur += 20
+
+        # Draw mini radar display
+        radar_r = 38
+        radar_cx = 58
+        radar_cy = y_cur + radar_r
+        self.car.sensor.draw_radar_hud(dash_surf, radar_cx, radar_cy, radar_r)
+
+        # Radar telemetry info beside radar
+        s_status = obs.get("sensor_status", "CLEAR")
+        s_col = (255, 60, 60) if s_status == "ALERT" else (255, 200, 40) if s_status == "CAUTION" else (80, 240, 120)
+        t_s1 = self.font_small.render(f"Sensor: {s_status}", True, s_col)
+        t_s2 = self.font_small.render(f"Range: {obs.get('sensor_dist', 180)} px", True, (210, 225, 240))
+        t_s3 = self.font_small.render(f"Threat: {obs.get('sensor_threat', 'CLEAR')}", True, (255, 180, 100))
+        rep_pct = int(self.car.sensor.repulsion_steer * 100)
+        t_s4 = self.font_small.render(f"Repulsion: {rep_pct}%", True, (180, 220, 240))
+        dash_surf.blit(t_s1, (116, y_cur + 4))
+        dash_surf.blit(t_s2, (116, y_cur + 21))
+        dash_surf.blit(t_s3, (116, y_cur + 38))
+        dash_surf.blit(t_s4, (116, y_cur + 55))
+
+        y_cur += radar_r * 2 + 14
 
         pygame.draw.line(dash_surf, (40, 70, 95), (14, y_cur), (dw - 14, y_cur), 1)
-        y_cur += 10
+        y_cur += 8
 
         # Decision Making Stream
         dec_title = self.font_medium.render("INTERNAL DELIBERATION STREAM", True, (255, 215, 60))
         dash_surf.blit(dec_title, (14, y_cur))
-        y_cur += 20
+        y_cur += 18
 
         # Render thoughts (leaving space for slider at bottom)
         slider_top_y = dh - 75

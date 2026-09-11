@@ -257,7 +257,7 @@ class Cow:
     def __init__(self, x: float, y: float, state: str = 'WALKING_EDGE', side: int = -1, herd_id: int = 0):
         self.x = x
         self.y = y
-        self.state = state  # 'WALKING_EDGE' or 'RESTING'
+        self.state = state  # 'WALKING_EDGE', 'RESTING', or 'CLEARING_ROAD'
         self.is_resting = (state == 'RESTING')
         self.is_moving = not self.is_resting
         self.side = side  # -1: left edge, +1: right edge, 0: middle
@@ -280,11 +280,101 @@ class Cow:
         self.chew_phase = random.uniform(0.0, 6.28)
         self.walk_phase = random.uniform(0.0, 6.28)
 
-    def update(self, dt: float, road):
+        # Motivation by horn & deadlock
+        self.is_motivated_to_clear = False
+        self.clearing_dir = 1  # -1 left, +1 right
+        self.deadlock_timer = 0.0
+        self.startled_timer = 0.0
+        self.horn_reaction_anim = 0.0
+
+    def trigger_motivation(self, road):
+        """Called when a horn is sounded or a vehicle deadlock forms ahead of the cow."""
+        if not self.is_motivated_to_clear:
+            self.is_motivated_to_clear = True
+            self.startled_timer = 7.0
+            self.horn_reaction_anim = 2.0
+            
+            left, right, cx, _ = road.get_road_edges(self.y)
+            # Pick nearest shoulder
+            self.clearing_dir = -1 if self.x < cx else 1
+            
+            if self.is_resting:
+                self.is_resting = False
+                self.is_moving = True
+                self.state = 'CLEARING_ROAD'
+
+    def update(self, dt: float, road, traffic=None, player_car=None):
         self.tail_phase += dt * 3.2
         self.chew_phase += dt * 3.8
 
-        if self.is_moving:
+        if self.horn_reaction_anim > 0:
+            self.horn_reaction_anim = max(0.0, self.horn_reaction_anim - dt)
+        if self.startled_timer > 0:
+            self.startled_timer = max(0.0, self.startled_timer - dt)
+
+        # 1. Perception: Horn Hearing
+        horn_heard = False
+        if player_car and getattr(player_car, 'honk_timer', 0.0) > 0.0:
+            dist_p = math.hypot(player_car.x - self.x, player_car.y - self.y)
+            if dist_p < 210.0:
+                horn_heard = True
+
+        if not horn_heard and traffic:
+            for veh in traffic:
+                if getattr(veh, 'is_honking', False):
+                    dist_t = math.hypot(veh.x - self.x, veh.y - self.y)
+                    if dist_t < 190.0:
+                        horn_heard = True
+                        break
+
+        if horn_heard:
+            self.trigger_motivation(road)
+
+        # 2. Perception: Deadlock Detection
+        # Detect if any vehicle is blocked and stopped in front of the cow
+        blocked_vehicle_present = False
+        vehicles_checking = []
+        if player_car:
+            vehicles_checking.append(player_car)
+        if traffic:
+            vehicles_checking.extend(traffic)
+
+        for v in vehicles_checking:
+            dy = v.y - self.y  # positive if vehicle is south (approaching)
+            dx = abs(v.x - self.x)
+            if 0 < dy < 95.0 and dx < 42.0 and v.speed < 12.0:
+                blocked_vehicle_present = True
+                break
+
+        if blocked_vehicle_present:
+            self.deadlock_timer += dt
+            if self.deadlock_timer > 0.65:
+                # Deadlock detected! Motivate cow to stand up and walk out of the way
+                self.trigger_motivation(road)
+        else:
+            self.deadlock_timer = max(0.0, self.deadlock_timer - dt * 0.4)
+
+        # 3. Execution: Moving out of the way
+        if self.is_motivated_to_clear:
+            left, right, cx, rw = road.get_road_edges(self.y)
+            self.walk_phase += dt * 4.2
+            
+            # Move actively toward the chosen shoulder
+            self.x += self.clearing_dir * 28.0 * dt
+            self.y -= 12.0 * dt  # also slow amble forward
+            
+            road_ang = math.degrees(road.get_tangent_angle(self.y))
+            self.angle_deg = road_ang + self.clearing_dir * 38.0
+
+            # Check if reached safe road shoulder
+            if (self.clearing_dir == -1 and self.x <= left + 8.0) or \
+               (self.clearing_dir == 1 and self.x >= right - 8.0):
+                self.is_motivated_to_clear = False
+                self.state = 'WALKING_EDGE'
+                self.side = self.clearing_dir
+                self.speed = random.uniform(9.0, 15.0) * (-1 if self.clearing_dir == -1 else 1)
+
+        elif self.is_moving:
             self.walk_phase += dt * 2.8
             self.y += self.speed * dt
 
@@ -362,8 +452,8 @@ class Cow:
             pygame.draw.line(cow_surf, shade_col, (cx, cy + 16), (cx + 4 + tail_swish, cy + 19), 2)
             pygame.draw.circle(cow_surf, (35, 30, 25), (int(cx + 4 + tail_swish), cy + 20), 2)
         else:
-            # WALKING COW (Slow movement along edge)
-            leg_off1 = math.sin(self.walk_phase) * 3.0
+            # WALKING OR CLEARING COW
+            leg_off1 = math.sin(self.walk_phase) * 3.5
             leg_off2 = -leg_off1
             pygame.draw.circle(cow_surf, shade_col, (cx - 9, int(cy - 12 + leg_off1)), 3)
             pygame.draw.circle(cow_surf, shade_col, (cx + 9, int(cy - 12 + leg_off2)), 3)
@@ -396,9 +486,10 @@ class Cow:
             pygame.draw.line(cow_surf, horn_col, (cx + 5, cy - 24), (cx + 11, cy - 27), 2)
             pygame.draw.line(cow_surf, horn_col, (cx + 11, cy - 27), (cx + 9, cy - 30), 2)
 
-            # Floppy ears
-            pygame.draw.ellipse(cow_surf, body_col, (cx - 12, cy - 22, 6, 4))
-            pygame.draw.ellipse(cow_surf, body_col, (cx + 6, cy - 22, 6, 4))
+            # Floppy ears (perked up slightly when motivated)
+            ear_y_off = -2 if self.is_motivated_to_clear else 0
+            pygame.draw.ellipse(cow_surf, body_col, (cx - 12, cy - 22 + ear_y_off, 6, 4))
+            pygame.draw.ellipse(cow_surf, body_col, (cx + 6, cy - 22 + ear_y_off, 6, 4))
 
             # Tail
             swish = math.sin(self.tail_phase) * 4.5
@@ -408,6 +499,14 @@ class Cow:
         rot_surf = pygame.transform.rotate(cow_surf, -self.angle_deg)
         rot_rect = rot_surf.get_rect(center=(int(self.x), int(sy)))
         surface.blit(rot_surf, rot_rect)
+
+        # Draw alert indicator if startled by horn or clearing road
+        if self.horn_reaction_anim > 0:
+            alert_y = int(sy - 34)
+            pygame.draw.circle(surface, (255, 215, 30), (int(self.x), alert_y), 7)
+            pygame.draw.circle(surface, (20, 20, 20), (int(self.x), alert_y), 7, width=1)
+            pygame.draw.line(surface, (20, 20, 20), (int(self.x), alert_y - 4), (int(self.x), alert_y + 1), 2)
+            pygame.draw.circle(surface, (20, 20, 20), (int(self.x), alert_y + 4), 1)
 
 
 class TrafficVehicle:
@@ -431,6 +530,8 @@ class TrafficVehicle:
         self.angle_deg = 0.0
         self.hit = False
         self.target_x = x
+        self.is_honking = False
+        self.honk_timer = 0.0
 
         # Kinetic lateral speed
         self.vx = 0.0
@@ -492,6 +593,10 @@ class TrafficVehicle:
         self.cut_timer = random.uniform(self.cut_interval[0] * 0.5, self.cut_interval[1])
 
     def update(self, dt: float, road, all_traffic=None, player_car=None, pedestrians=None, cows=None):
+        if self.honk_timer > 0:
+            self.honk_timer -= dt
+            self.is_honking = (self.honk_timer > 0)
+
         # 1. Autonomous collision avoidance & speed control (supports stopping to 0)
         desired_speed = self.cruising_speed
 
@@ -502,24 +607,24 @@ class TrafficVehicle:
                     continue
                 dy = self.y - other.y
                 dx = abs(self.x - other.x)
-                if 0 < dy < 140 and dx < (self.width + other.width) * 0.62:
-                    min_gap = (self.length + other.length) * 0.5 + 24.0
+                if 0 < dy < 155 and dx < (self.width + other.width) * 0.65:
+                    min_gap = (self.length + other.length) * 0.5 + 32.0
                     if dy < min_gap:
-                        desired_speed = 0.0 # Full stop at rest!
+                        desired_speed = 0.0 # Full stop at rest to prevent any collision!
                     else:
-                        gap_factor = max(0.0, min(1.0, (dy - min_gap) / 60.0))
+                        gap_factor = max(0.0, min(1.0, (dy - min_gap) / 65.0))
                         desired_speed = min(desired_speed, other.speed * gap_factor)
 
         # B. Check player car ahead
         if player_car:
             dy = self.y - player_car.y
             dx = abs(self.x - player_car.x)
-            if 0 < dy < 140 and dx < (self.width + player_car.width) * 0.62:
-                min_gap = (self.length + player_car.length) * 0.5 + 24.0
+            if 0 < dy < 155 and dx < (self.width + player_car.width) * 0.65:
+                min_gap = (self.length + player_car.length) * 0.5 + 32.0
                 if dy < min_gap:
                     desired_speed = 0.0 # Full stop behind player car
                 else:
-                    gap_factor = max(0.0, min(1.0, (dy - min_gap) / 60.0))
+                    gap_factor = max(0.0, min(1.0, (dy - min_gap) / 65.0))
                     desired_speed = min(desired_speed, player_car.speed * gap_factor)
 
         # C. Check crossing pedestrians ahead
@@ -527,30 +632,34 @@ class TrafficVehicle:
             for ped in pedestrians:
                 dy = self.y - ped.y
                 dx = abs(self.x - ped.x)
-                if 0 < dy < 110 and dx < (self.width * 0.5 + ped.radius + 16.0):
-                    if dy < 42.0:
-                        desired_speed = 0.0 # Full stop for pedestrians!
+                if 0 < dy < 125 and dx < (self.width * 0.5 + ped.radius + 20.0):
+                    if dy < 50.0:
+                        desired_speed = 0.0 # Full stop with safe margin for pedestrians!
+                        self.is_honking = True
+                        self.honk_timer = 0.45
                     else:
-                        desired_speed = min(desired_speed, 20.0)
+                        desired_speed = min(desired_speed, 18.0)
 
         # D. Check cows ahead (predict behavior and adjust trajectory from far off)
         if cows:
             for cow in cows:
                 dy = self.y - cow.y
                 dx = abs(self.x - cow.x)
-                if 0 < dy < 180 and dx < (self.width * 0.5 + cow.width * 0.5 + 28.0):
+                if 0 < dy < 190 and dx < (self.width * 0.5 + cow.width * 0.5 + 30.0):
                     left_e, right_e, _, _ = road.get_road_edges(self.y)
                     safe_l = left_e + self.width * 0.65 + 6.0
                     safe_r = right_e - self.width * 0.65 - 6.0
                     if cow.x >= self.x:
-                        self.target_x = max(safe_l, min(self.target_x, cow.x - cow.width * 0.5 - self.width * 0.5 - 20.0))
+                        self.target_x = max(safe_l, min(self.target_x, cow.x - cow.width * 0.5 - self.width * 0.5 - 24.0))
                     else:
-                        self.target_x = min(safe_r, max(self.target_x, cow.x + cow.width * 0.5 + self.width * 0.5 + 20.0))
+                        self.target_x = min(safe_r, max(self.target_x, cow.x + cow.width * 0.5 + self.width * 0.5 + 24.0))
 
-                    if dy < 55.0:
-                        desired_speed = 0.0 # Full stop before cow
+                    if dy < 60.0:
+                        desired_speed = 0.0 # Full stop before cow to prevent hitting
+                        self.is_honking = True
+                        self.honk_timer = 0.5
                     elif dy < 125.0:
-                        desired_speed = min(desired_speed, 35.0)
+                        desired_speed = min(desired_speed, 32.0)
 
         # E. Execute acceleration / braking
         if desired_speed < self.speed:
@@ -826,7 +935,7 @@ class ObstacleManager:
 
         # Update cows
         for cow in self.cows:
-            cow.update(dt, self.road)
+            cow.update(dt, self.road, self.traffic, player_car)
 
         spawn_horizon = player_y - 1300
 
