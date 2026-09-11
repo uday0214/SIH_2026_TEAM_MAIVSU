@@ -107,36 +107,34 @@ class CircularDiscSensor:
                 if other is vehicle:
                     continue
                 v_rad = max(other.width, other.length) * 0.38
-                contacts.append((other.x, other.y, f"TRAFFIC_{other.vtype}", v_rad, other.speed, True))
-                veh_contacts.append(other)
+                contacts.append((other.x, other.y, f"TRAFFIC_{other.vtype}", v_rad, other.speed, True, other))
 
         # 2. Player car (for NPC vehicles)
         if player_car and player_car is not vehicle:
             p_rad = max(player_car.width, player_car.length) * 0.38
-            contacts.append((player_car.x, player_car.y, "AUTONOMOUS_CAR", p_rad, player_car.speed, True))
-            veh_contacts.append(player_car)
+            contacts.append((player_car.x, player_car.y, "AUTONOMOUS_CAR", p_rad, player_car.speed, True, player_car))
 
         # 3. Pedestrians
         if pedestrians:
             for ped in pedestrians:
-                contacts.append((ped.x, ped.y, 'PEDESTRIAN', ped.radius, getattr(ped, 'speed', 15.0), False))
+                contacts.append((ped.x, ped.y, 'PEDESTRIAN', ped.radius, getattr(ped, 'speed', 15.0), False, ped))
 
         # 4. Cows
         if cows:
             for cow in cows:
-                contacts.append((cow.x, cow.y, 'COW', cow.radius, getattr(cow, 'speed', 10.0), False))
+                contacts.append((cow.x, cow.y, 'COW', cow.radius, getattr(cow, 'speed', 10.0), False, cow))
 
         # 5. Potholes
         if potholes:
             for p in potholes:
-                contacts.append((p.x, p.y, 'POTHOLE', p.effective_radius, 0.0, False))
+                contacts.append((p.x, p.y, 'POTHOLE', p.effective_radius, 0.0, False, p))
 
         # 6. Road boundaries
         if road:
             for sample_y in [vehicle.y - 70.0, vehicle.y, vehicle.y + 70.0]:
                 left, right, _, _ = road.get_road_edges(sample_y)
-                contacts.append((left, sample_y, 'ROAD_EDGE', 6.0, 0.0, False))
-                contacts.append((right, sample_y, 'ROAD_EDGE', 6.0, 0.0, False))
+                contacts.append((left, sample_y, 'ROAD_EDGE', 6.0, 0.0, False, None))
+                contacts.append((right, sample_y, 'ROAD_EDGE', 6.0, 0.0, False, None))
 
         nearest_d = self.r_outer
         nearest_t = 'CLEAR'
@@ -150,7 +148,7 @@ class CircularDiscSensor:
 
         veh_heading = getattr(vehicle, 'heading', 0.0)
 
-        for idx, (ox, oy, otype, rad, ospd, is_veh) in enumerate(contacts):
+        for ox, oy, otype, rad, ospd, is_veh, ref_obj in contacts:
             dx = ox - vehicle.x
             dy = oy - vehicle.y
             raw_dist = math.hypot(dx, dy)
@@ -195,8 +193,7 @@ class CircularDiscSensor:
                         min_v_dist = eff_dist
                         min_v_threat = otype
                         min_v_sec = sec
-                        if idx < len(veh_contacts):
-                            min_v_obj = veh_contacts[idx]
+                        min_v_obj = ref_obj
                     if eff_dist < self.r_mid:
                         v_in_caution = True
                     if eff_dist < (self.r_inner + 8.0):

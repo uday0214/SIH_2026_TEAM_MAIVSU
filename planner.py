@@ -87,7 +87,7 @@ class AStarPlanner:
         goal_col = 0  # Road centerline ahead
         goal_wx, goal_wy = grid_to_world(goal_col, goal_row)
 
-        # Dynamic traffic projection
+        # Dynamic traffic projection: Reserve BOTH current and predicted future positions
         predicted_traffic = []
         effective_car_spd = max(110.0, car_speed)
         for t in traffic:
@@ -97,9 +97,9 @@ class AStarPlanner:
                 pred_y = t.y - t.speed * t_arrival
                 pred_road_cx = self.road.get_road_center(pred_y)
                 pred_x = pred_road_cx + t.lateral_offset
-                predicted_traffic.append((pred_x, pred_y, t))
+                predicted_traffic.append((t.x, t.y, pred_x, pred_y, t))
             else:
-                predicted_traffic.append((t.x, t.y, t))
+                predicted_traffic.append((t.x, t.y, t.x, t.y, t))
 
         # Pedestrian projection
         predicted_pedestrians = []
@@ -119,50 +119,67 @@ class AStarPlanner:
             
             # Road boundaries constraint
             left_e, right_e, cx, rw = self.road.get_road_edges(wy)
-            margin = 17.0
+            margin = 18.0
             if wx < left_e + margin or wx > right_e - margin:
                 off = self.road.get_offroad_penalty(wx, wy)
-                return 600.0 + off * 35.0
+                return 700.0 + off * 40.0
 
-            # Centerline attraction (stabilizes cruising smoothly down the road center)
-            center_dist = abs(c * step_d) / (rw * 0.5)
-            penalty = center_dist * 4.5
+            # Virtual Lane Discipline (Models rough lane structure of Indian highways)
+            # Three organic highway corridors: Left (-0.22 W), Center (0.0), Right (+0.22 W)
+            d = c * step_d
+            lane_l = -rw * 0.22
+            lane_c = 0.0
+            lane_r = rw * 0.22
+            dist_to_lane = min(abs(d - lane_l), abs(d - lane_c), abs(d - lane_r))
+            # Gentle lane discipline penalty encourages sticking to corridors
+            penalty = dist_to_lane * 1.8 + (abs(d) / (rw * 0.5)) * 2.5
 
-            # 1. Potholes (Avoid if possible, but drivable at lower speed if unavoidable)
+            # 1. Potholes (Strongly avoid by routing around; high finite penalty allows crawling if road blocked)
             for p in potholes:
                 dx = wx - p.x
                 dy = wy - p.y
                 dist_sq = dx * dx + dy * dy
-                safe_r = p.effective_radius + SAFETY_MARGIN_POTHOLE
+                safe_r = p.effective_radius + SAFETY_MARGIN_POTHOLE + 6.0
                 if dist_sq <= (safe_r * safe_r):
                     dist = math.sqrt(dist_sq)
-                    penalty += 260.0 + (safe_r - dist) * 18.0
-                elif dist_sq <= ((safe_r + 26) ** 2):
+                    penalty += 1150.0 + (safe_r - dist) * 38.0
+                elif dist_sq <= ((safe_r + 34.0) ** 2):
                     dist = math.sqrt(dist_sq)
-                    penalty += (safe_r + 26 - dist) * 12.0
+                    penalty += (safe_r + 34.0 - dist) * 15.0
 
-            # 2. Dynamic Traffic Vehicles
-            for pred_x, pred_y, t in predicted_traffic:
-                dx = abs(wx - pred_x)
-                dy = abs(wy - pred_y)
-                safe_w = (t.width / 2.0) + SAFETY_MARGIN_CAR + 4
-                safe_l = (t.length / 2.0) + SAFETY_MARGIN_CAR + 8
-                if dx < safe_w and dy < safe_l:
+            # 2. Dynamic Traffic Vehicles (Never path into current OR future vehicle position!)
+            for curr_x, curr_y, pred_x, pred_y, t in predicted_traffic:
+                dx_c = abs(wx - curr_x)
+                dy_c = abs(wy - curr_y)
+                dx_p = abs(wx - pred_x)
+                dy_p = abs(wy - pred_y)
+
+                safe_w = (t.width / 2.0) + SAFETY_MARGIN_CAR + 6.0
+                safe_l = (t.length / 2.0) + SAFETY_MARGIN_CAR + 14.0
+
+                # Strict collision exclusion zone for both current and predicted positions
+                if (dx_c < safe_w and dy_c < safe_l) or (dx_p < safe_w and dy_p < safe_l):
                     return float('inf')
-                elif dx < safe_w + 24 and dy < safe_l + 30:
-                    penalty += 80.0 + (safe_w + 24 - dx) * 5.0 + (safe_l + 30 - dy) * 4.0
+
+                # Wide repulsive cushion to steer around well ahead of time
+                cush_w = safe_w + 26.0
+                cush_l = safe_l + 38.0
+                if (dx_c < cush_w and dy_c < cush_l) or (dx_p < cush_w and dy_p < cush_l):
+                    eff_dx = min(dx_c, dx_p)
+                    eff_dy = min(dy_c, dy_p)
+                    penalty += 160.0 + (cush_w - eff_dx) * 7.0 + (cush_l - eff_dy) * 5.0
 
             # 3. Pedestrians
             for pred_px, pred_py, ped in predicted_pedestrians:
                 dx = wx - pred_px
                 dy = wy - pred_py
                 dist_sq = dx * dx + dy * dy
-                safe_r = ped.radius + SAFETY_MARGIN_PEDESTRIAN + 6
+                safe_r = ped.radius + SAFETY_MARGIN_PEDESTRIAN + 8.0
                 if dist_sq <= (safe_r * safe_r):
                     return float('inf')
-                elif dist_sq <= ((safe_r + 28) ** 2):
+                elif dist_sq <= ((safe_r + 30.0) ** 2):
                     dist = math.sqrt(dist_sq)
-                    penalty += 110.0 + (safe_r + 28 - dist) * 9.0
+                    penalty += 130.0 + (safe_r + 30.0 - dist) * 10.0
 
             # 4. Indian Bovines (Cows): Predict and adjust path far ahead
             for cow in cows:
@@ -170,21 +187,19 @@ class AStarPlanner:
                 dy = wy - cow.y
                 dist_sq = dx * dx + dy * dy
                 if getattr(cow, 'is_resting', False):
-                    # Resting cow sitting in the road: wide repulsive bubble
-                    safe_r = cow.radius + 22.0
+                    safe_r = cow.radius + 24.0
                     if dist_sq <= (safe_r * safe_r):
                         return float('inf')
-                    elif dist_sq <= ((safe_r + 48.0) ** 2):
+                    elif dist_sq <= ((safe_r + 50.0) ** 2):
                         dist = math.sqrt(dist_sq)
-                        penalty += 170.0 + (safe_r + 48.0 - dist) * 13.0
+                        penalty += 190.0 + (safe_r + 50.0 - dist) * 14.0
                 else:
-                    # Walking along road shoulder: edge caution zone
                     safe_r = cow.radius + 18.0
                     if dist_sq <= (safe_r * safe_r):
                         return float('inf')
-                    elif dist_sq <= ((safe_r + 32.0) ** 2):
+                    elif dist_sq <= ((safe_r + 34.0) ** 2):
                         dist = math.sqrt(dist_sq)
-                        penalty += 100.0 + (safe_r + 32.0 - dist) * 8.0
+                        penalty += 110.0 + (safe_r + 34.0 - dist) * 8.0
 
             return penalty
 
@@ -212,19 +227,21 @@ class AStarPlanner:
         best_node = start_node
         best_progress_r = start_row
 
-        # Road-Aligned Moves:
-        # dc = 0 means following the road curvature directly forward down the road!
+        # Smooth, Highway-Realistic Moves:
+        # Avoids sharp cuts by requiring adequate longitudinal progress for lateral lane shifts.
+        # No instantaneous (-2, 1) or (-1, 1) angular snaps!
         moves = [
-            (0, 1, 1.0),      # Follow road curve directly forward (most preferred)
-            (0, 2, 1.8),      # Fast forward along road curve
-            (-1, 1, 1.7),     # Slight left swerve along road
-            (1, 1, 1.7),      # Slight right swerve along road
-            (-1, 2, 2.0),     # Gentle left lane shift along road
-            (1, 2, 2.0),      # Gentle right lane shift along road
-            (-2, 2, 2.8),     # Moderate left lane change along road
-            (2, 2, 2.8),      # Moderate right lane change along road
-            (-2, 1, 3.4),     # Sharp left avoidance along road
-            (2, 1, 3.4),      # Sharp right avoidance along road
+            (0, 1, 1.0),      # Follow road corridor directly forward (most preferred)
+            (0, 2, 1.6),      # Fast forward along road corridor
+            (0, 3, 2.2),      # Long forward along road corridor
+            (-1, 2, 2.2),     # Gentle, gradual left drift
+            (1, 2, 2.2),      # Gentle, gradual right drift
+            (-1, 3, 2.6),     # Smooth left lane change
+            (1, 3, 2.6),      # Smooth right lane change
+            (-2, 3, 3.8),     # Natural left bypass
+            (2, 3, 3.8),      # Natural right bypass
+            (-2, 4, 4.4),     # Wide gradual lane change left
+            (2, 4, 4.4),      # Wide gradual lane change right
         ]
 
         max_iterations = 650
@@ -266,11 +283,11 @@ class AStarPlanner:
                 step_dist = math.hypot(dc * step_d, dr * step_s)
                 tentative_g = current.g + step_dist * move_weight + cell_penalty
 
-                # Steering smoothness constraint relative to road:
+                # Steering smoothness constraint relative to road (suppresses zig-zag cuts):
                 if current.parent:
                     prev_dc = current.col - current.parent.col
                     steering_diff = abs(dc - prev_dc)
-                    tentative_g += steering_diff * 8.0
+                    tentative_g += steering_diff * 16.0
 
                 if tentative_g < neighbor.g:
                     neighbor.parent = current
@@ -303,10 +320,14 @@ class AStarPlanner:
         return smoothed
 
     def _smooth_path(self, path: List[Tuple[float, float]], iterations: int = 3) -> List[Tuple[float, float]]:
-        """Applies 3 iterations of Chaikin's corner-cutting algorithm for silky trajectories."""
+        """
+        Applies Chaikin's corner-cutting algorithm followed by moving-average
+        curvature relaxation for silky, continuous highway trajectories.
+        """
         if len(path) < 3:
             return path
 
+        # 1. Chaikin corner cutting
         pts = list(path)
         for _ in range(iterations):
             new_pts = [pts[0]]
@@ -320,4 +341,11 @@ class AStarPlanner:
             new_pts.append(pts[-1])
             pts = new_pts
 
-        return pts
+        # 2. Moving average relaxation to eliminate any micro-inflections
+        smoothed = [pts[0]]
+        for i in range(1, len(pts) - 1):
+            sx = 0.20 * pts[i-1][0] + 0.60 * pts[i][0] + 0.20 * pts[i+1][0]
+            sy = 0.20 * pts[i-1][1] + 0.60 * pts[i][1] + 0.20 * pts[i+1][1]
+            smoothed.append((sx, sy))
+        smoothed.append(pts[-1])
+        return smoothed
