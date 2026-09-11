@@ -4,40 +4,42 @@ A pure Pygame 2D simulation with **zero external backend or machine learning dep
 
 ---
 
-## 🌟 Features
+## 🌟 Key Features
 
-1. **AI Cognitive Dashboard (Toggle with `[TAB]` or `[T]`)**:
-   - Displays real-time internal observations and perception metrics:
-     - **Safety Margin** gauge (40% - 99%).
-     - **Steering Intent** dynamic centered dual slider (`LEFT` / `RIGHT` / `CENTER`).
-     - **Throttle & Braking** intensity progress bars.
-     - **Internal Deliberation Stream**: Live timestamped thought log explaining the vehicle's real-time decisions (e.g., pre-braking for curves, honking at pedestrians, overtaking slow trucks, easing throttle in bottlenecks).
+1. **Intelligent Traffic Management & Zero Off-Road Guarantee**:
+   - **Strict Road Clamping**: All vehicles (Trucks, Buses, Cars, Autos, Bikes) are strictly clamped within the drivable asphalt road; no vehicles go offroad onto dirt shoulders.
+   - **Inter-Vehicle Collision Avoidance**: NPC vehicles continuously check forward headway. If blocked by another vehicle, pedestrian, or player car, they automatically decelerate or come to a **complete stop at rest (speed = 0.0)**.
+   - **Gap-Checked Lane Cuts**: Before executing a lane change, NPC vehicles verify that adjacent spaces are clear.
 
-2. **5 Authentic Indian Traffic Varieties with Custom Driving Dynamics**:
-   - 🚚 **Truck**: Heavy multi-axle freight carrier. Very gentle lateral speed (~24 px/s), heavy inertia, rare cuts (~20% probability), wide sweeping curves.
-   - 🚌 **Bus**: Long State Transport passenger bus with luggage roof rack. Steady cruising, high inertia, stays centered/left.
-   - 🚗 **Car**: Standard sedan/hatchback. Balanced cruising speed (~130-170 px/s) and moderate lane changes.
-   - 🛺 **Auto-Rickshaw**: Nimble 3-wheeler with green body & yellow canopy. Moderate speed, weaves through inner shoulders and gaps.
-   - 🏍️ **Bike**: Fastest and most agile (~150-195 px/s). Frequently weaves nimbly through tight openings with high lateral agility.
+2. **Complete Stop-at-Rest Capability (`Speed = 0.0`)**:
+   - Both the main autonomous vehicle and NPC vehicles are capable of coming to a complete stop (`0 km/h`) whenever blocked by crossing pedestrians or stopped traffic ahead, activating rear brake lights and restarting smoothly when the road clears.
 
-3. **Smooth Kinematic Lane Cuts (Zero Teleportation)**:
-   - NPC vehicles change lanes using smooth lateral acceleration physics (`self.vx`) and dynamic yaw angle tilt rather than snapping or jumping across positions.
-   - Sharp cut frequency reduced by 25–30%.
+3. **Dynamic Potholes (Reduced Probability by 55–60%)**:
+   - Pothole spawn frequency has been reduced significantly (~55% less frequent).
+   - Sizes are dynamically generated across three distinct categories:
+     - **Small Surface Potholes** (9–14 px)
+     - **Medium Road Craters** (17–26 px)
+     - **Large Hazardous Trenches** (32–48 px)
 
-4. **Realistic Highway Steering Constraints for Primary Vehicle**:
-   - Angular turn rate capped at `1.45 rad/s` with realistic vehicular yaw damping.
-   - Strict heading constraint: Off-axis yaw is clamped within ~20.5° of the road tangent, preventing unrealistic sharp side-swerves.
-   - Extended lookahead pursuit distance (65–125 px) enforces graceful forward curves.
+4. **AI Cognitive Dashboard (Toggle with `[TAB]` or `[T]`)**:
+   - Live perception metrics: Safety margin progress gauge, focus threat indicator, dynamic road width.
+   - Dual-sided steering intent slider (`LEFT` / `RIGHT` / `CENTER`) and throttle/braking intensity bars.
+   - Internal Deliberation Stream: Live timestamped thought log explaining the vehicle's real-time decisions (e.g., pre-braking for curves, honking at pedestrians, coming to full stop behind traffic, navigating bottlenecks).
 
-5. **Dynamic Road Width & Sparse Markings**:
-   - Organically narrows down into single-lane bridges / bottlenecks (~205 px) and expands into broad stretches (~420 px).
-   - Weathered, broken white center markings appear only sparsely on isolated stretches (~15% of the road).
+5. **5 Distinct Vehicle Varieties with Custom Driving Profiles**:
+   - 🚚 **Truck**: Heavy multi-axle carrier. Slow speed (80–105 px/s), heavy inertia, very gentle lateral transitions (~22 px/s), wide curves.
+   - 🚌 **Bus**: Long passenger bus with luggage rack. High inertia, stays centered/left, slow steady curves.
+   - 🚗 **Car**: Passenger sedan/hatchback. Balanced cruising speed (~125–165 px/s).
+   - 🛺 **Auto-Rickshaw**: 3-wheeler (22x36 px) with green body & yellow canopy. Moderate speed, weaves through inner shoulders.
+   - 🏍️ **Bike**: Agile motorcycle with rider helmet (13x26 px). Fastest (145–190 px/s) and most nimble.
 
-6. **Random Jaywalking Pedestrians**:
-   - Pedestrians walking along the shoulders unpredictably step out and cross the road without warning. The car detects, pre-brakes, and sounds its horn.
+6. **Realistic Highway Steering Constraints on Primary Vehicle**:
+   - Angular turn rate capped at `1.45 rad/s` with vehicular yaw damping.
+   - Off-axis heading clamped within ~20.5° (0.38 rad) of the road tangent, preventing sharp or unrealistic side-swerves.
 
-7. **Adaptive Auto-Speed Mode (`[A]`)**:
-   - Situationally modulates throttle based on road width, upcoming curve severity, pedestrian crossing hazards, and traffic gaps.
+7. **Dynamic Road Width & Sparse Markings**:
+   - Road narrows down to single-lane bottlenecks (~205 px) and expands to open stretches (~420 px).
+   - Weathered, broken white center markings appear only sparsely (~15% of the road).
 
 ---
 
@@ -45,7 +47,7 @@ A pure Pygame 2D simulation with **zero external backend or machine learning dep
 
 | Key | Action |
 |---|---|
-| **`TAB`** / **`T`** | **Toggle AI Cognitive Dashboard** (Internal thoughts, observations, actuator gauges) |
+| **`TAB`** / **`T`** | **Toggle AI Cognitive Dashboard** (Thoughts, observations, actuator gauges) |
 | **`A`** | **Toggle Auto-Speed Mode** (Adaptive Speed vs Manual Speed) |
 | **`D`** | **Toggle A\* Search Overlay** (Explored nodes, hazard cells, waypoints) |
 | **`SPACE`** | **Pause / Resume** simulation |

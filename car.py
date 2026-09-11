@@ -174,20 +174,34 @@ class AutonomousCar:
         else:
             self.auto_speed_reason = "MANUAL SPEED"
 
-        # 4. Dynamic Speed Control Execution
+        # 4. Dynamic Speed Control Execution (Capable of coming to complete rest)
         curvature_factor = max(0.0, 1.0 - abs(angle_diff) * 1.4)
-        effective_desired = PLAYER_MIN_SPEED + (self.target_speed - PLAYER_MIN_SPEED) * curvature_factor
+        effective_desired = self.target_speed * curvature_factor
 
-        # Close proximity collision override
+        # Close proximity collision override with complete stop at rest
         for t in t_nearby:
-            if 0 < (self.y - t.y) < 70 and abs(self.x - t.x) < 30:
-                effective_desired = min(effective_desired, t.speed * 0.85)
+            dy = self.y - t.y
+            dx = abs(self.x - t.x)
+            if 0 < dy < 95 and dx < (self.width + t.width) * 0.62:
+                min_gap = (self.length + t.length) * 0.5 + 24.0
+                if dy < min_gap:
+                    effective_desired = 0.0 # Full stop at rest!
+                    self.add_thought(f"Blocked by {t.vtype} ahead. Vehicle coming to full stop.", "WARN")
+                else:
+                    gap_factor = max(0.0, min(1.0, (dy - min_gap) / 45.0))
+                    effective_desired = min(effective_desired, t.speed * gap_factor)
                 self.honk_timer = 0.35
                 break
 
         for ped in ped_nearby:
-            if 0 < (self.y - ped.y) < 65 and abs(self.x - ped.x) < 32:
-                effective_desired = min(effective_desired, 45.0)
+            p_dy = self.y - ped.y
+            p_dx = abs(self.x - ped.x)
+            if 0 < p_dy < 80 and p_dx < 36:
+                if p_dy < 42.0:
+                    effective_desired = 0.0 # Full stop for pedestrian!
+                    self.add_thought("Pedestrian directly in path! Emergency stop at rest.", "ALERT")
+                else:
+                    effective_desired = min(effective_desired, 25.0)
                 self.honk_timer = 0.35
                 break
 
@@ -201,11 +215,19 @@ class AutonomousCar:
             self.speed = min(effective_desired, self.speed + PLAYER_ACCEL * dt)
             self.is_braking = False
 
+        self.speed = max(0.0, self.speed) # Fully stop capable
+
         # 5. Integrate Motion
         vx = math.sin(self.heading) * self.speed
         vy = -math.cos(self.heading) * self.speed
         self.x += vx * dt
         self.y += vy * dt
+
+        # Strict road boundary clamping for player vehicle
+        left, right, _, rw = road.get_road_edges(self.y)
+        safe_left = left + self.width * 0.65
+        safe_right = right - self.width * 0.65
+        self.x = max(safe_left, min(safe_right, self.x))
 
         # 6. Decay bump shake
         if self.bump_shake > 0:

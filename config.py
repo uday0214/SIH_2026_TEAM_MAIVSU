@@ -37,9 +37,9 @@ PLAYER_WIDTH = 26
 PLAYER_LENGTH = 52
 PLAYER_BASE_SPEED = 210                # pixels per second (~60 km/h scale)
 PLAYER_MAX_SPEED = 290                 # Max speed on open clear roads
-PLAYER_MIN_SPEED = 50                  # Minimum crawl speed
+PLAYER_MIN_SPEED = 0.0                  # Full stop capable (speed can become 0)
 PLAYER_ACCEL = 160                     # Acceleration rate px/s^2
-PLAYER_DECEL = 290                     # Braking rate px/s^2
+PLAYER_DECEL = 320                     # Braking rate px/s^2
 
 # Realistic Steering Constraints
 PLAYER_STEER_SPEED = 1.45              # Max angular turning speed (rad/s) - realistic highway steering
@@ -56,8 +56,8 @@ SAFETY_MARGIN_POTHOLE = 14             # Buffer distance around potholes
 SAFETY_MARGIN_PEDESTRIAN = 18          # Buffer distance around pedestrians
 
 # Obstacle Generation
-POTHOLE_SPAWN_INTERVAL = (90, 220)     # Vertical distance between potholes
-TRAFFIC_SPAWN_INTERVAL = (200, 420)    # Vertical distance between traffic cars
+POTHOLE_SPAWN_INTERVAL = (250, 580)    # Reduced pothole frequency (by ~55%)
+TRAFFIC_SPAWN_INTERVAL = (220, 460)    # Vertical distance between traffic cars
 PEDESTRIAN_SPAWN_INTERVAL = (140, 310) # Vertical distance between pedestrians
 MAX_TRAFFIC_AHEAD = 7
 MAX_POTHOLES_AHEAD = 12

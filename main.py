@@ -108,7 +108,7 @@ class IndianHighwaySimulation:
         dt = min(dt, 0.05)
 
         # 1. Update obstacles, traffic (Truck, Bus, Car, Auto, Bike), and pedestrians
-        self.obstacles.update(dt, self.car.y)
+        self.obstacles.update(dt, self.car)
 
         # 2. Update player car (A* tracking, realistic steering constraints, thoughts)
         self.car.update(dt, self.road, self.obstacles, self.planner)
