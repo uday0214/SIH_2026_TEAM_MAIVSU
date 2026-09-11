@@ -125,17 +125,19 @@ class AStarPlanner:
             center_dist = abs(wx - cx) / (rw * 0.5)
             penalty = center_dist * 4.0
 
-            # 1. Potholes
+            # 1. Potholes (Avoid if possible, but drivable at lower speed if unavoidable)
             for p in potholes:
                 dx = wx - p.x
                 dy = wy - p.y
                 dist_sq = dx * dx + dy * dy
                 safe_r = p.effective_radius + SAFETY_MARGIN_POTHOLE
                 if dist_sq <= (safe_r * safe_r):
-                    return float('inf')
+                    dist = math.sqrt(dist_sq)
+                    # High penalty ensures A* steers around when possible, but doesn't deadlock
+                    penalty += 260.0 + (safe_r - dist) * 18.0
                 elif dist_sq <= ((safe_r + 26) ** 2):
                     dist = math.sqrt(dist_sq)
-                    penalty += (safe_r + 26 - dist) * 14.0
+                    penalty += (safe_r + 26 - dist) * 12.0
 
             # 2. Dynamic Traffic Vehicles
             for pred_x, pred_y, t in predicted_traffic:

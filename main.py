@@ -231,25 +231,27 @@ class IndianHighwaySimulation:
         ctrl_text = "[TAB] AI Thoughts Dashboard  |  [A] Auto Speed  |  [D] A* Debug  |  [SPACE] Pause  |  [R] Reset"
         t_ctrl = self.font_small.render(ctrl_text, True, (210, 225, 240))
         ctrl_surf.blit(t_ctrl, (16, 10))
-        self.screen.blit(ctrl_surf, (SCREEN_WIDTH // 2 - ctrl_w // 2, SCREEN_HEIGHT - 44))
+        # Docked at bottom of the road driving viewport
+        self.screen.blit(ctrl_surf, (60, SCREEN_HEIGHT - 44))
 
         if self.paused:
             pause_surf = self.font_large.render("-- SIMULATION PAUSED --", True, (255, 220, 40))
-            px = SCREEN_WIDTH // 2 - pause_surf.get_width() // 2
+            px = 440 - pause_surf.get_width() // 2
             py = 35
             self.screen.blit(pause_surf, (px, py))
 
     def draw_dashboard(self):
-        """Draws the toggleable AI Thoughts & Observation Dashboard on the right."""
+        """Draws the dedicated AI Thoughts & Observation Dashboard in the right sidebar."""
         if not self.show_dashboard:
             return
 
-        dw, dh = 370, 520
+        dw = 360
+        dh = SCREEN_HEIGHT - 32
         dx = SCREEN_WIDTH - dw - 16
         dy = 16
 
         dash_surf = pygame.Surface((dw, dh), pygame.SRCALPHA)
-        pygame.draw.rect(dash_surf, (10, 15, 22, 235), (0, 0, dw, dh), border_radius=10)
+        pygame.draw.rect(dash_surf, (10, 15, 22, 238), (0, 0, dw, dh), border_radius=10)
         pygame.draw.rect(dash_surf, (0, 190, 240, 140), (0, 0, dw, dh), width=2, border_radius=10)
 
         # Header
@@ -326,7 +328,7 @@ class IndianHighwaySimulation:
         dash_surf.blit(dec_title, (14, y_cur))
         y_cur += 20
 
-        for time_str, text, tag in self.car.thoughts_log[-5:]:
+        for time_str, text, tag in self.car.thoughts_log[-8:]:
             if tag == "ALERT":
                 tag_col = (255, 100, 80)
             elif tag == "WARN":

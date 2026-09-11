@@ -3,8 +3,8 @@ Simulation configuration and constants.
 """
 
 # Screen & Display
-SCREEN_WIDTH = 960
-SCREEN_HEIGHT = 720
+SCREEN_WIDTH = 1260
+SCREEN_HEIGHT = 760
 FPS = 60
 TITLE = "Indian Highway Autonomous Driving (A* Pathfinding)"
 

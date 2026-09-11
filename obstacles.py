@@ -88,9 +88,44 @@ class Pedestrian:
         self.cross_timer = random.uniform(1.5, 5.5)
         self.walk_phase = random.uniform(0.0, 6.28)
 
-    def update(self, dt: float, road):
-        self.walk_phase += dt * 8.0
+    def update(self, dt: float, road, traffic=None, player_car=None):
         left, right, cx, rw = road.get_road_edges(self.y)
+
+        # 1. Self-preservation: Detect approaching vehicles to stop or avert
+        is_threatened = False
+        scramble_dx = 0.0
+
+        vehicles_to_check = []
+        if traffic:
+            vehicles_to_check.extend(traffic)
+        if player_car:
+            vehicles_to_check.append(player_car)
+
+        for v in vehicles_to_check:
+            dy = v.y - self.y # positive if vehicle is south approaching north
+            dx = abs(v.x - self.x)
+            if 0 < dy < 95 and dx < (v.width * 0.5 + 24.0):
+                is_threatened = True
+                if dy < 48.0 and dx < (v.width * 0.5 + 16.0):
+                    # Immediate danger! Scramble/avert sideways towards closest shoulder
+                    dist_to_left = abs(self.x - left)
+                    dist_to_right = abs(self.x - right)
+                    step_dir = -1.0 if dist_to_left < dist_to_right else 1.0
+                    scramble_dx = step_dir * 70.0
+                break
+
+        # If immediately threatened, actively avert/scramble
+        if scramble_dx != 0.0:
+            self.x += scramble_dx * dt
+            self.walk_phase += dt * 12.0
+            return
+
+        # If vehicle is approaching, stop in tracks and wait
+        if is_threatened:
+            return
+
+        # 2. Normal walking progression when safe
+        self.walk_phase += dt * 8.0
 
         if self.state == 'WALKING_SHOULDER':
             self.cross_timer -= dt
@@ -459,9 +494,9 @@ class ObstacleManager:
         for veh in self.traffic:
             veh.update(dt, self.road, self.traffic, player_car, self.pedestrians)
 
-        # Update pedestrians
+        # Update pedestrians with vehicle threat detection & self-preservation
         for ped in self.pedestrians:
-            ped.update(dt, self.road)
+            ped.update(dt, self.road, self.traffic, player_car)
 
         spawn_horizon = player_y - 1100
 

@@ -205,6 +205,19 @@ class AutonomousCar:
                 self.honk_timer = 0.35
                 break
 
+        # Pothole crossing: Never stop completely for potholes; cross at lower cautious speed
+        for p in p_nearby:
+            p_dy = self.y - p.y
+            p_dx = abs(self.x - p.x)
+            if 0 < p_dy < 85 and p_dx < (p.effective_radius + self.width * 0.45):
+                cautious_spd = 78.0 # ~22 km/h
+                if effective_desired > cautious_spd:
+                    effective_desired = cautious_spd
+                    if self.auto_mode:
+                        self.auto_speed_reason = "CROSSING POTHOLE (SLOW)"
+                    self.add_thought("Approaching unavoidable pothole; crossing at reduced speed.", "DECISION")
+                break
+
         if self.honk_timer > 0:
             self.honk_timer -= dt
 
