@@ -38,6 +38,7 @@ class IndianHighwaySimulation:
         self.paused = False
         self.show_debug = True
         self.show_dashboard = True  # Toggleable AI Thoughts & Decision Dashboard
+        self.show_hitboxes_and_radar = True # Toggleable Hitboxes and Radar field
         self.dragging_slider = False # Mouse drag state for traffic density slider
         self.roadside_props = []
 
@@ -118,6 +119,8 @@ class IndianHighwaySimulation:
                     self.paused = not self.paused
                 elif event.key == pygame.K_d:
                     self.show_debug = not self.show_debug
+                elif event.key == pygame.K_h:
+                    self.show_hitboxes_and_radar = not self.show_hitboxes_and_radar
                 elif event.key in (pygame.K_TAB, pygame.K_t):
                     self.show_dashboard = not self.show_dashboard
                 elif event.key == pygame.K_a:
@@ -261,13 +264,13 @@ class IndianHighwaySimulation:
         self.screen.blit(hud_surf, (16, 16))
 
         # Bottom Controls Banner
-        ctrl_w, ctrl_h = 760, 34
+        ctrl_w, ctrl_h = 860, 34
         ctrl_surf = pygame.Surface((ctrl_w, ctrl_h), pygame.SRCALPHA)
         pygame.draw.rect(ctrl_surf, (15, 20, 26, 215), (0, 0, ctrl_w, ctrl_h), border_radius=6)
-        ctrl_text = "[TAB] Dashboard  |  [ [ / ] ] Density  |  [A] Auto Speed  |  [D] A* Debug  |  [SPACE] Pause  |  [R] Reset"
+        ctrl_text = "[H] Hitboxes & Radar  |  [TAB] Dashboard  |  [ [ / ] ] Density  |  [A] Auto  |  [D] A* Debug  |  [SPACE] Pause  |  [R] Reset"
         t_ctrl = self.font_small.render(ctrl_text, True, (210, 225, 240))
         ctrl_surf.blit(t_ctrl, (14, 10))
-        self.screen.blit(ctrl_surf, (50, SCREEN_HEIGHT - 44))
+        self.screen.blit(ctrl_surf, (20, SCREEN_HEIGHT - 44))
 
         if self.paused:
             pause_surf = self.font_large.render("-- SIMULATION PAUSED --", True, (255, 220, 40))
@@ -461,8 +464,12 @@ class IndianHighwaySimulation:
 
             self.road.draw(self.screen, self.camera_y)
             self.draw_roadside_props()
-            self.obstacles.draw(self.screen, self.camera_y)
-            self.car.draw(self.screen, self.camera_y)
+            self.obstacles.draw(self.screen, self.camera_y,
+                                show_radar=self.show_hitboxes_and_radar,
+                                show_hitbox=self.show_hitboxes_and_radar)
+            self.car.draw(self.screen, self.camera_y,
+                          show_radar=self.show_hitboxes_and_radar,
+                          show_hitbox=self.show_hitboxes_and_radar)
             self.draw_debug_overlay()
             self.draw_hud()
             self.draw_dashboard()
