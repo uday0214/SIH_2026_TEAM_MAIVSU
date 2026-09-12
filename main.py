@@ -252,7 +252,7 @@ class IndianHighwaySimulation:
 
     def draw_hud(self):
         """Top-left Telemetry Card."""
-        hud_w, hud_h = 440, 248
+        hud_w, hud_h = 450, 272
         hud_surf = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
         pygame.draw.rect(hud_surf, (14, 18, 24, 220), (0, 0, hud_w, hud_h), border_radius=10)
         pygame.draw.rect(hud_surf, (0, 180, 230, 120), (0, 0, hud_w, hud_h), width=2, border_radius=10)
@@ -278,6 +278,8 @@ class IndianHighwaySimulation:
             (f"Debug [D]: {'ON' if self.show_debug else 'OFF'}  |  Radar [H]: {'ON' if self.show_radar else 'OFF'}  |  Vectors [V]: {'ON' if self.show_traffic_vectors else 'OFF'}",
              (0, 235, 255), self.font_medium),
             (f"Dual A*: {self.planner.nodes_explored_count} nodes ({short_nodes} local | {long_nodes} global)", (255, 220, 80), self.font_medium),
+            (f"AI Signals: {self.car.total_signals} ({self.car.total_decisions} Dec + {self.car.total_warnings} Warn + {self.car.total_other_signals} Other)",
+             (240, 190, 255), self.font_medium),
             (f"Potholes: {self.obstacles.potholes_avoided} dodged | Hits: {self.car.pothole_bumps}",
              (120, 255, 140) if self.car.pothole_bumps == 0 else (255, 160, 80), self.font_medium),
             (f"Traffic: {self.obstacles.traffic_overtaken} overtaken | Hits: {self.car.collisions}",
@@ -431,7 +433,7 @@ class IndianHighwaySimulation:
         y_cur += 8
 
         # Decision Making Stream
-        dec_title = self.font_medium.render("INTERNAL DELIBERATION STREAM", True, (255, 215, 60))
+        dec_title = self.font_medium.render(f"INTERNAL DELIBERATION STREAM ({self.car.total_signals})", True, (255, 215, 60))
         dash_surf.blit(dec_title, (14, y_cur))
         y_cur += 18
 

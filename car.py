@@ -357,6 +357,10 @@ class AutonomousCar:
         ]
         self.last_thought_time = 0.0
         self.last_thought_text = ""
+        self.total_decisions = 0
+        self.total_warnings = 0
+        self.total_other_signals = len(self.thoughts_log)
+        self.total_signals = len(self.thoughts_log)
         self.observations = {
             "road_width": 320,
             "road_curve": 0.0,
@@ -400,6 +404,16 @@ class AutonomousCar:
         self.thoughts_log.append((time_str, text, tag))
         if len(self.thoughts_log) > 10:
             self.thoughts_log.pop(0)
+
+        # Track cumulative signals generated for cognitive dashboard
+        tag_u = tag.upper()
+        if tag_u == "DECISION":
+            self.total_decisions += 1
+        elif tag_u in ("WARN", "WARNING", "ALERT", "CAUTION"):
+            self.total_warnings += 1
+        else:
+            self.total_other_signals += 1
+        self.total_signals += 1
 
     def update(self, dt: float, road, obstacles, planner):
         self.sim_time += dt
