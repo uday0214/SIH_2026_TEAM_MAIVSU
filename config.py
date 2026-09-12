@@ -78,3 +78,8 @@ TRAFFIC_VECTOR_PRED_HORIZON = 2.0       # Projection horizon for traffic vectors
 REAR_CUTIN_MIN_HEADWAY_SEC = 0.70       # Min headway required to cut into adjacent lane (seconds)
 REAR_CUTIN_SAFE_HEADWAY_SEC = 1.80      # Headway horizon where rear penalty applies (seconds)
 REAR_CUTIN_MIN_GAP_PX = 60.0            # Min physical gap behind when cutting into lane (px)
+
+# Vehicle Collision & Crowded Speed Penalties
+VEHICLE_COLLISION_PENALTY_SCALE = 1.60   # +60% penalty increase for vehicle collisions across all vehicles
+CROWDED_AREA_SPEED_PENALTY_MAX = 0.20    # Up to 20% additional penalty for high speeds in crowded areas
+CROWDED_NEIGHBOR_RADIUS = 150.0          # Spatial radius to detect crowded vehicle clusters (px)

@@ -11,7 +11,8 @@ from config import (
     PLAYER_BASE_SPEED, PLAYER_MAX_SPEED, PLAYER_MIN_SPEED,
     PLAYER_ACCEL, PLAYER_DECEL, PLAYER_STEER_SPEED, MAX_STEER_DEVIATION,
     PLANNER_REPLAN_INTERVAL, POTHOLE_OBSTACLE_SPEED_THRESHOLD, REST_ACCEL_FACTOR,
-    PLANNER_LONG_LOOKAHEAD
+    PLANNER_LONG_LOOKAHEAD,
+    VEHICLE_COLLISION_PENALTY_SCALE, CROWDED_AREA_SPEED_PENALTY_MAX, CROWDED_NEIGHBOR_RADIUS
 )
 from obstacles import negotiate_deadlock_priority
 
@@ -511,6 +512,17 @@ class AutonomousCar:
                 base_auto_speed = min(traffic_speed_allowance, 185.0 + width_ratio * 45.0)
                 reason = traffic_reason
 
+            # Crowded area high speed penalty (penalize high speeds in crowded areas by up to 20%)
+            crowded_cluster = [t for t in t_nearby if abs(t.y - self.y) < CROWDED_NEIGHBOR_RADIUS]
+            if len(crowded_cluster) >= 2 and base_auto_speed > 90.0:
+                crowd_ratio = min(1.0, (len(crowded_cluster) - 1) / 2.0)
+                speed_ratio = min(1.0, max(0.0, (self.speed - 70.0) / 105.0))
+                crowd_speed_penalty = CROWDED_AREA_SPEED_PENALTY_MAX * crowd_ratio * speed_ratio
+                base_auto_speed *= (1.0 - crowd_speed_penalty)
+                if crowd_speed_penalty > 0.04:
+                    reason = f"CROWD SPEED PENALTY (-{int(crowd_speed_penalty * 100)}%)"
+                    self.add_thought(f"High speed in crowded area penalized by {int(crowd_speed_penalty * 100)}%; easing throttle.", "DECISION")
+
             # Road bottleneck cognition
             if rw < 240:
                 self.add_thought(f"Road pinched to {int(rw)}px bottleneck. Easing throttle.", "ALERT")
@@ -758,7 +770,9 @@ class AutonomousCar:
             if not getattr(t, 'hit', False) and abs(self.y - t.y) < (self.length + t.length) / 2 and abs(self.x - t.x) < (self.width + t.width) / 2:
                 t.hit = True
                 self.collisions += 1
-                self.add_thought(f"Impact with {t.vtype}! Recalibrating spatial margin.", "ALERT")
+                self.bump_shake = 1.60  # +60% collision shock penalty impact
+                self.speed = max(0.0, self.speed - 56.0)  # Severe momentum loss (+60% increased speed penalty)
+                self.add_thought(f"Severe collision with {t.vtype}! (+60% collision penalty impact applied).", "ALERT")
 
         # Pedestrians
         for ped in obstacles.pedestrians:

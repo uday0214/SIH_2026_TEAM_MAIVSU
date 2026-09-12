@@ -21,7 +21,8 @@ from config import (
     PLANNER_LONG_LOOKAHEAD, PLANNER_SHORT_LOOKAHEAD,
     SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN,
     PLAYER_WIDTH, POTHOLE_OBSTACLE_SPEED_THRESHOLD,
-    REAR_CUTIN_MIN_HEADWAY_SEC, REAR_CUTIN_SAFE_HEADWAY_SEC, REAR_CUTIN_MIN_GAP_PX
+    REAR_CUTIN_MIN_HEADWAY_SEC, REAR_CUTIN_SAFE_HEADWAY_SEC, REAR_CUTIN_MIN_GAP_PX,
+    VEHICLE_COLLISION_PENALTY_SCALE, CROWDED_AREA_SPEED_PENALTY_MAX, CROWDED_NEIGHBOR_RADIUS
 )
 
 class GridNode:
@@ -228,6 +229,14 @@ class LongRangeAStarPlanner:
                         penalty += (safe_r + 20.0 - dist) * 18.0 * speed_pothole_factor
 
             # 2. Dynamic Traffic (Pure Obstacle Hitbox + Moving Direction Vector Corridor Avoidance)
+            # Calculate local traffic crowding around cell (wx, wy)
+            nearby_traffic = [t for t in traffic if abs(t.y - wy) < CROWDED_NEIGHBOR_RADIUS and abs(t.x - wx) < 95.0]
+            is_crowded = len(nearby_traffic) >= 2
+            crowd_severity = min(1.0, (len(nearby_traffic) - 1) / 2.0) if is_crowded else 0.0
+            car_speed_ratio = min(1.0, max(0.0, (car_speed - 75.0) / 100.0))
+            crowd_speed_mult = 1.0 + (CROWDED_AREA_SPEED_PENALTY_MAX * crowd_severity * car_speed_ratio)
+            collision_penalty_scale = VEHICLE_COLLISION_PENALTY_SCALE * crowd_speed_mult
+
             for pred_x, pred_y, t in predicted_traffic:
                 dx = abs(wx - pred_x)
                 dy = abs(wy - pred_y)
@@ -258,7 +267,8 @@ class LongRangeAStarPlanner:
                 if dx < impassable_w and dy < impassable_l:
                     return float('inf')
                 elif dx < (impassable_w + caution_buf) and dy < (impassable_l + caution_buf + 6.0):
-                    penalty += 70.0 + (impassable_w + caution_buf - dx) * 4.5 + (impassable_l + caution_buf + 6.0 - dy) * 4.0
+                    base_caution_pen = 70.0 + (impassable_w + caution_buf - dx) * 4.5 + (impassable_l + caution_buf + 6.0 - dy) * 4.0
+                    penalty += base_caution_pen * collision_penalty_scale
 
             # Dynamic Traffic Direction Vector Check: Prevent long-range path from cutting into closing rear traffic
             for t in traffic:
@@ -295,13 +305,23 @@ class LongRangeAStarPlanner:
                                 v_closing = max(0.0, t.speed - car_speed)
                                 headway_ratio = (REAR_CUTIN_SAFE_HEADWAY_SEC - headway_time) / REAR_CUTIN_SAFE_HEADWAY_SEC
                                 lat_ratio = (corridor_w - corridor_dx) / corridor_w
-                                penalty += (180.0 + v_closing * 3.0) * headway_ratio * lat_ratio
+                                t_speed_ratio = min(1.0, max(0.0, (t.speed - 75.0) / 100.0))
+                                t_crowd_pen = 1.0 + (CROWDED_AREA_SPEED_PENALTY_MAX * crowd_severity * t_speed_ratio)
+                                base_cutin_pen = (180.0 + v_closing * 3.0) * headway_ratio * lat_ratio
+                                penalty += base_cutin_pen * collision_penalty_scale * t_crowd_pen
                         else:
                             lag_time = t_car_arr - t_npc_arr
                             if lag_time < 0.35 or (car_speed * lag_time < 32.0):
                                 return float('inf')
                             elif lag_time < 0.85:
-                                penalty += (0.85 - lag_time) * 90.0
+                                penalty += (0.85 - lag_time) * 90.0 * collision_penalty_scale
+                    elif corridor_dx < (corridor_w + 16.0):
+                        if abs(t_car_arr - t_npc_arr) < 0.80:
+                            penalty += (corridor_w + 16.0 - corridor_dx) * 7.0 * collision_penalty_scale
+
+            # Direct speed penalty when moving fast in crowded areas (penalize up to 20% more)
+            if is_crowded and car_speed > 80.0:
+                penalty += 42.0 * crowd_severity * car_speed_ratio * (1.0 + CROWDED_AREA_SPEED_PENALTY_MAX)
 
             # 3. Pedestrians
             for pred_px, pred_py, ped in predicted_pedestrians:
@@ -597,6 +617,14 @@ class ShortRangeAStarPlanner:
                         penalty += (safe_r + 20.0 - dist) * 18.0 * speed_pothole_factor
 
             # 2. Dynamic Traffic Vehicles (Pure Obstacle Hitbox + Moving Direction Vector Corridor Avoidance)
+            # Calculate local traffic crowding around cell (wx, wy)
+            nearby_traffic = [t for t in traffic if abs(t.y - wy) < CROWDED_NEIGHBOR_RADIUS and abs(t.x - wx) < 95.0]
+            is_crowded = len(nearby_traffic) >= 2
+            crowd_severity = min(1.0, (len(nearby_traffic) - 1) / 2.0) if is_crowded else 0.0
+            car_speed_ratio = min(1.0, max(0.0, (car_speed - 75.0) / 100.0))
+            crowd_speed_mult = 1.0 + (CROWDED_AREA_SPEED_PENALTY_MAX * crowd_severity * car_speed_ratio)
+            collision_penalty_scale = VEHICLE_COLLISION_PENALTY_SCALE * crowd_speed_mult
+
             for pred_x, pred_y, t in predicted_traffic:
                 dx = abs(wx - pred_x)
                 dy = abs(wy - pred_y)
@@ -627,7 +655,8 @@ class ShortRangeAStarPlanner:
                 if dx < impassable_w and dy < impassable_l:
                     return float('inf')
                 elif dx < (impassable_w + caution_buf) and dy < (impassable_l + caution_buf + 6.0):
-                    penalty += 75.0 + (impassable_w + caution_buf - dx) * 4.5 + (impassable_l + caution_buf + 6.0 - dy) * 4.0
+                    base_caution_pen = 75.0 + (impassable_w + caution_buf - dx) * 4.5 + (impassable_l + caution_buf + 6.0 - dy) * 4.0
+                    penalty += base_caution_pen * collision_penalty_scale
 
             # Dynamic Traffic Direction Vector & Rear Cut-In Avoidance
             # Prevents the vehicle from cutting into another lane directly into the path of a closing vehicle
@@ -673,17 +702,24 @@ class ShortRangeAStarPlanner:
                                 headway_ratio = (REAR_CUTIN_SAFE_HEADWAY_SEC - headway_time) / REAR_CUTIN_SAFE_HEADWAY_SEC
                                 lat_ratio = (corridor_w - corridor_dx) / corridor_w
                                 vtype_weight = 1.5 if vtype in ('TRUCK', 'BUS') else 1.0
-                                penalty += (210.0 + v_closing * 3.5) * headway_ratio * lat_ratio * vtype_weight
+                                t_speed_ratio = min(1.0, max(0.0, (t.speed - 75.0) / 100.0))
+                                t_crowd_pen = 1.0 + (CROWDED_AREA_SPEED_PENALTY_MAX * crowd_severity * t_speed_ratio)
+                                base_cutin_pen = (210.0 + v_closing * 3.5) * headway_ratio * lat_ratio * vtype_weight
+                                penalty += base_cutin_pen * collision_penalty_scale * t_crowd_pen
                         else:
                             # Player arrives at wy after vehicle t (cutting right behind t)
                             lag_time = t_car_arr - t_npc_arr
                             if lag_time < 0.35 or (car_speed * lag_time < 32.0):
                                 return float('inf')  # Cutting dangerously close to vehicle's tail
                             elif lag_time < 0.85:
-                                penalty += (0.85 - lag_time) * 110.0
+                                penalty += (0.85 - lag_time) * 110.0 * collision_penalty_scale
                     elif corridor_dx < (corridor_w + 16.0):
                         if abs(t_car_arr - t_npc_arr) < 0.80:
-                            penalty += (corridor_w + 16.0 - corridor_dx) * 7.0
+                            penalty += (corridor_w + 16.0 - corridor_dx) * 7.0 * collision_penalty_scale
+
+            # Direct speed penalty when moving fast in crowded areas (penalize up to 20% more)
+            if is_crowded and car_speed > 80.0:
+                penalty += 45.0 * crowd_severity * car_speed_ratio * (1.0 + CROWDED_AREA_SPEED_PENALTY_MAX)
 
             # 3. Pedestrians
             for pred_px, pred_py, ped in predicted_pedestrians:

@@ -10,7 +10,8 @@ from typing import Tuple, Optional, List
 from config import (
     COLOR_POTHOLE_INNER, COLOR_POTHOLE_RIM,
     SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN,
-    REST_ACCEL_FACTOR
+    REST_ACCEL_FACTOR,
+    VEHICLE_COLLISION_PENALTY_SCALE, CROWDED_AREA_SPEED_PENALTY_MAX, CROWDED_NEIGHBOR_RADIUS
 )
 
 class Pothole:
@@ -681,6 +682,18 @@ class TrafficVehicle:
         # 1. Autonomous collision avoidance & speed control (supports stopping to 0)
         desired_speed = self.cruising_speed
 
+        # Crowded area high speed penalty for NPC vehicles (penalize high speed by up to 20% in crowds)
+        if all_traffic:
+            nearby_neighbors = [
+                other for other in all_traffic
+                if other is not self and abs(other.y - self.y) < CROWDED_NEIGHBOR_RADIUS and abs(other.x - self.x) < 85.0
+            ]
+            if len(nearby_neighbors) >= 2 and self.speed > 80.0:
+                crowd_ratio = min(1.0, (len(nearby_neighbors) - 1) / 2.0)
+                speed_ratio = min(1.0, max(0.0, (self.speed - 75.0) / 100.0))
+                crowd_penalty = CROWDED_AREA_SPEED_PENALTY_MAX * crowd_ratio * speed_ratio
+                desired_speed *= (1.0 - crowd_penalty)
+
         # A. Check vehicles ahead & Deadlock Negotiation
         if all_traffic:
             for other in all_traffic:
@@ -688,8 +701,8 @@ class TrafficVehicle:
                     continue
                 dy = self.y - other.y
                 dx = abs(self.x - other.x)
-                if 0 < dy < 155 and dx < (self.width + other.width) * 0.65:
-                    min_gap = (self.length + other.length) * 0.5 + 32.0
+                if 0 < dy < 165 and dx < (self.width + other.width) * 0.65:
+                    min_gap = (self.length + other.length) * 0.5 + 32.0 * VEHICLE_COLLISION_PENALTY_SCALE
                     if dy < min_gap:
                         # Check for deadlock (both vehicles near standstill)
                         if self.speed < 25.0 and other.speed < 25.0:
@@ -713,8 +726,8 @@ class TrafficVehicle:
         if player_car:
             dy = self.y - player_car.y
             dx = abs(self.x - player_car.x)
-            if 0 < dy < 155 and dx < (self.width + player_car.width) * 0.65:
-                min_gap = (self.length + player_car.length) * 0.5 + 32.0
+            if 0 < dy < 165 and dx < (self.width + player_car.width) * 0.65:
+                min_gap = (self.length + player_car.length) * 0.5 + 32.0 * VEHICLE_COLLISION_PENALTY_SCALE
                 if dy < min_gap:
                     if self.speed < 25.0 and player_car.speed < 25.0:
                         has_priority, _ = negotiate_deadlock_priority(self, player_car, road)
@@ -766,9 +779,10 @@ class TrafficVehicle:
                     elif dy < 125.0:
                         desired_speed = min(desired_speed, 32.0)
 
-        # E. Execute acceleration / braking (Reduced acceleration from rest by 20%)
+        # E. Execute acceleration / braking (Reduced acceleration from rest by 20%, +60% sharper collision avoidance braking)
         if desired_speed < self.speed:
-            self.speed = max(desired_speed, self.speed - self.decel * dt)
+            effective_decel = self.decel * VEHICLE_COLLISION_PENALTY_SCALE
+            self.speed = max(desired_speed, self.speed - effective_decel * dt)
             self.is_braking = True
         else:
             rest_scale = REST_ACCEL_FACTOR if self.speed < 40.0 else (REST_ACCEL_FACTOR + (1.0 - REST_ACCEL_FACTOR) * min(1.0, (self.speed - 40.0) / 40.0))
