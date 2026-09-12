@@ -4,7 +4,7 @@
 3. sometimes the car does not move when a vehicle hits its red zone from behind(done)
 4. penalize the a* algorithm for varying a lot(done)
 5. add the potholes into the a* algorithm, creating red pixels on the road(done)
-6. the a* pathfinding algo does not go in forward direction evne when everything is empty ahead and deliberately tries to cut the road(improve A*)
+6. the a* pathfinding algo does not go in forward direction evne when everything is empty ahead and deliberately tries to cut the road(improve A*, by adding virtual hidden lanes which have penalty in A* for crossing them)
 7.
 
 
