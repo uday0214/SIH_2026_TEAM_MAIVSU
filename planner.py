@@ -209,10 +209,10 @@ class AStarPlanner:
                 if dist_from_our_lane > lane_w * 0.32:
                     penalty += 85.0 + (dist_from_our_lane - lane_w * 0.32) * 12.0
 
-            # 1. Potholes:
+            # 1. Potholes (50% increased penalty regardless of size):
             # At speeds > 6-7 km/h (~23.5 px/s), all potholes (bigger and smaller) are treated as Pure Obstacles
             # with infinite cost (drawing reddish obstacle boxes in debug).
-            # Below this threshold, vehicles crawl across with finite penalty.
+            # Below this threshold, moving over a pothole incurs a 50% increased penalty (390.0 base vs 260.0).
             for p in potholes:
                 dx = wx - p.x
                 dy = wy - p.y
@@ -221,19 +221,19 @@ class AStarPlanner:
                 if car_speed > POTHOLE_OBSTACLE_SPEED_THRESHOLD:
                     if dist_sq <= (safe_r * safe_r):
                         return float('inf')  # Impassable pure obstacle (reddish box in debug view)
-                    elif dist_sq <= ((safe_r + 20.0) ** 2):
+                    elif dist_sq <= ((safe_r + 24.0) ** 2):
                         dist = math.sqrt(dist_sq)
-                        base_cost = (safe_r + 20.0 - dist) * 14.0
+                        base_cost = (safe_r + 24.0 - dist) * 21.0  # +50% proximity buffer
                         penalty += base_cost * speed_pothole_factor
                 else:
-                    # Crawling speed (<= 6-7 km/h): permitted to crawl across with finite penalty
+                    # Crawling speed (<= 6-7 km/h): +50% increased penalty for traversing over a pothole regardless of size
                     if dist_sq <= (safe_r * safe_r):
                         dist = math.sqrt(dist_sq)
-                        base_cost = 95.0 + (safe_r - dist) * 8.0
+                        base_cost = 390.0 + (safe_r - dist) * 27.0  # +50% increased penalty (was 260.0 / 18.0)
                         penalty += base_cost * speed_pothole_factor
-                    elif dist_sq <= ((safe_r + 16.0) ** 2):
+                    elif dist_sq <= ((safe_r + 20.0) ** 2):
                         dist = math.sqrt(dist_sq)
-                        base_cost = (safe_r + 16.0 - dist) * 5.0
+                        base_cost = (safe_r + 20.0 - dist) * 18.0  # +50% increased buffer penalty
                         penalty += base_cost * speed_pothole_factor
 
             # 2. Dynamic Traffic Vehicles (Pure Obstacle Hitbox + Dynamic Clearance Zones)

@@ -139,8 +139,8 @@ class CircularDiscSensor:
 
                 # Directional Red Zone Analysis:
                 # Projects obstacle location onto vehicle heading and movement axis.
-                # Potholes above crawl speed are now included as critical obstacles!
-                if eff_dist < self.r_inner and otype not in ['CLEAR', 'POTHOLE_CRAWL', 'ROAD_EDGE']:
+                # Only solid physical obstacles (vehicles, pedestrians, cows) trigger emergency sensor halts.
+                if eff_dist < self.r_inner and otype not in ['CLEAR', 'POTHOLE_CRAWL', 'POTHOLE_OBSTACLE', 'ROAD_EDGE']:
                     # d_fwd: positive in front of vehicle heading, negative behind
                     # d_lat: positive to right of vehicle heading, negative to left
                     d_fwd = dx * sin_h - dy * cos_h
@@ -634,19 +634,6 @@ class AutonomousCar:
                         effective_desired = min(effective_desired, 45.0)
                 break
 
-        # Pothole crossing: At speeds > 6-7 km/h, unavoidable potholes require decelerating to crawl speed (<= 22 px/s)
-        for p in p_nearby:
-            p_dy = self.y - p.y
-            p_dx = abs(self.x - p.x)
-            if 0 < p_dy < 95 and p_dx < (p.effective_radius + self.width * 0.5 + 4.0):
-                crawl_spd = 22.0  # <= 6-7 km/h (~6.2 km/h)
-                if effective_desired > crawl_spd:
-                    effective_desired = crawl_spd
-                    if self.auto_mode:
-                        self.auto_speed_reason = "POTHOLE CRAWL (<=7 km/h)"
-                    self.add_thought("Approaching unavoidable pothole crater; reducing to <=7 km/h crawl.", "DECISION")
-                break
-
         # Circular Disc Sensor Threat Assessment & Inter-Vehicle Deadlock Negotiation:
         # Analyzes obstacle location, threat type, and performs principled deadlock resolution.
         if self.sensor.critical_breached and self.sensor.forward_hazard_present:
@@ -655,13 +642,7 @@ class AutonomousCar:
             sec = info['sector'] if info else "FRONT"
             obj_ref = info.get('ref') if info else None
 
-            if threat_type == 'POTHOLE_OBSTACLE':
-                # Approaching a pothole obstacle at speed: decelerate to crawl threshold (<= 22 px/s)
-                effective_desired = min(effective_desired, 22.0)
-                if self.auto_mode:
-                    self.auto_speed_reason = "POTHOLE CRAWL (<=7 km/h)"
-                self.add_thought("SENSOR RED ZONE: Pothole obstacle in forward path; slowing to <=7 km/h crawl.", "WARN")
-            elif threat_type.startswith("TRAFFIC_") and obj_ref is not None:
+            if threat_type.startswith("TRAFFIC_") and obj_ref is not None:
                 # Inter-vehicle deadlock negotiation
                 if self.speed < 25.0 and getattr(obj_ref, 'speed', 0.0) < 25.0:
                     has_priority, reason = negotiate_deadlock_priority(self, obj_ref, road)
