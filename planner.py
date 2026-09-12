@@ -133,7 +133,7 @@ class LongRangeAStarPlanner:
                     pred_x = pred_road_cx + getattr(t, 'lateral_offset', 0.0)
                 predicted_traffic.append((pred_x, pred_y, t))
             else:
-                predicted_traffic.append((t.x, t.y, t.x, t.y, t))
+                predicted_traffic.append((t.x, t.y, t))
 
         # Strategic Cow / Herd Projection
         predicted_pedestrians = []
@@ -189,10 +189,10 @@ class LongRangeAStarPlanner:
             wx, wy = grid_to_world(c, r)
 
             left_e, right_e, cx, rw = self.road.get_road_edges(wy)
-            margin = 18.0
+            margin = 17.0
             if wx < left_e + margin or wx > right_e - margin:
                 off = self.road.get_offroad_penalty(wx, wy)
-                return 700.0 + off * 40.0
+                return 600.0 + off * 35.0
 
             # Virtual Lane Guidance
             lanes, lane_w = self.road.get_virtual_lanes(wy)
@@ -328,12 +328,12 @@ class LongRangeAStarPlanner:
                 dx = wx - pred_px
                 dy = wy - pred_py
                 dist_sq = dx * dx + dy * dy
-                safe_r = ped.radius + SAFETY_MARGIN_PEDESTRIAN + 8.0
+                safe_r = ped.radius + SAFETY_MARGIN_PEDESTRIAN + 6
                 if dist_sq <= (safe_r * safe_r):
                     return float('inf')
-                elif dist_sq <= ((safe_r + 30.0) ** 2):
+                elif dist_sq <= ((safe_r + 28) ** 2):
                     dist = math.sqrt(dist_sq)
-                    penalty += 130.0 + (safe_r + 30.0 - dist) * 10.0
+                    penalty += 110.0 + (safe_r + 28 - dist) * 9.0
 
             # 4. Cows
             for cow in cows:
@@ -344,16 +344,16 @@ class LongRangeAStarPlanner:
                     safe_r = cow.radius + 22.0
                     if dist_sq <= (safe_r * safe_r):
                         return float('inf')
-                    elif dist_sq <= ((safe_r + 50.0) ** 2):
+                    elif dist_sq <= ((safe_r + 48.0) ** 2):
                         dist = math.sqrt(dist_sq)
-                        penalty += 190.0 + (safe_r + 50.0 - dist) * 14.0
+                        penalty += 170.0 + (safe_r + 48.0 - dist) * 13.0
                 else:
                     safe_r = cow.radius + 18.0
                     if dist_sq <= (safe_r * safe_r):
                         return float('inf')
-                    elif dist_sq <= ((safe_r + 34.0) ** 2):
+                    elif dist_sq <= ((safe_r + 32.0) ** 2):
                         dist = math.sqrt(dist_sq)
-                        penalty += 110.0 + (safe_r + 34.0 - dist) * 8.0
+                        penalty += 100.0 + (safe_r + 32.0 - dist) * 8.0
 
             return penalty
 

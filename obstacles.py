@@ -13,7 +13,6 @@ from config import (
     REST_ACCEL_FACTOR,
     VEHICLE_COLLISION_PENALTY_SCALE, CROWDED_AREA_SPEED_PENALTY_MAX, CROWDED_NEIGHBOR_RADIUS
 )
-from sensor import CircularDiscSensor, get_oriented_box_corners
 
 class Pothole:
     def __init__(self, x: float, y: float, rx: float, ry: float):
@@ -40,7 +39,7 @@ class Pothole:
         dy = (py - self.y) / (self.ry + margin)
         return (dx * dx + dy * dy) <= 1.0
 
-    def draw(self, surface: pygame.Surface, camera_y: float, show_hitbox: bool = False):
+    def draw(self, surface: pygame.Surface, camera_y: float):
         sy = self.y - camera_y
         h = surface.get_height()
         if sy < -60 or sy > h + 60:
@@ -58,9 +57,6 @@ class Pothole:
         )
         pygame.draw.ellipse(surface, COLOR_POTHOLE_INNER, inner_rect)
         pygame.draw.ellipse(surface, (15, 12, 10), inner_rect, 2)
-
-        if show_hitbox:
-            pygame.draw.ellipse(surface, (255, 140, 40), (int(self.x - self.rx), int(sy - self.ry), int(self.rx * 2), int(self.ry * 2)), 1)
 
 
 class Pedestrian:
@@ -199,7 +195,7 @@ class Pedestrian:
         r = self.radius + margin
         return (dx * dx + dy * dy) <= (r * r)
 
-    def draw(self, surface: pygame.Surface, camera_y: float, show_hitbox: bool = False):
+    def draw(self, surface: pygame.Surface, camera_y: float):
         sy = self.y - camera_y
         h = surface.get_height()
         if sy < -30 or sy > h + 30:
@@ -218,9 +214,6 @@ class Pedestrian:
 
         pygame.draw.circle(surface, self.skin_color, (ix, isy), 4)
         pygame.draw.circle(surface, self.hair_color, (ix, isy - 1), 3)
-
-        if show_hitbox:
-            pygame.draw.circle(surface, (255, 220, 60), (ix, isy), int(self.radius), width=1)
 
 
 class Cow:
@@ -408,7 +401,7 @@ class Cow:
             road_ang = math.degrees(road.get_tangent_angle(self.y))
             self.angle_deg = road_ang + math.sin(self.chew_phase * 0.5) * 3.5
 
-    def draw(self, surface: pygame.Surface, camera_y: float, show_hitbox: bool = False):
+    def draw(self, surface: pygame.Surface, camera_y: float):
         sy = self.y - camera_y
         h = surface.get_height()
         if sy < -70 or sy > h + 70:
@@ -517,9 +510,6 @@ class Cow:
             pygame.draw.circle(surface, (20, 20, 20), (int(self.x), alert_y), 7, width=1)
             pygame.draw.line(surface, (20, 20, 20), (int(self.x), alert_y - 4), (int(self.x), alert_y + 1), 2)
             pygame.draw.circle(surface, (20, 20, 20), (int(self.x), alert_y + 4), 1)
-
-        if show_hitbox:
-            pygame.draw.rect(surface, (255, 200, 80), (int(self.x - self.width / 2), int(sy - self.length / 2), int(self.width), int(self.length)), 1)
 
 
 VEHICLE_SIZE_RANK = {
@@ -691,18 +681,6 @@ class TrafficVehicle:
             self.cut_prob = 0.30
 
         self.cut_timer = random.uniform(self.cut_interval[0] * 0.5, self.cut_interval[1])
-
-        # Internal Radar Sensor (All vehicles have internal radar)
-        if vtype == 'TRUCK':
-            self.radar = CircularDiscSensor(r_inner=52.0, r_mid=118.0, r_outer=180.0, is_player=False, is_bike=False)
-        elif vtype == 'BUS':
-            self.radar = CircularDiscSensor(r_inner=56.0, r_mid=120.0, r_outer=180.0, is_player=False, is_bike=False)
-        elif vtype == 'AUTO':
-            self.radar = CircularDiscSensor(r_inner=36.0, r_mid=88.0, r_outer=150.0, is_player=False, is_bike=False)
-        elif vtype == 'BIKE':
-            self.radar = CircularDiscSensor(r_inner=28.0, r_mid=65.0, r_outer=120.0, is_player=False, is_bike=True)
-        else: # CAR
-            self.radar = CircularDiscSensor(r_inner=44.0, r_mid=102.0, r_outer=175.0, is_player=False, is_bike=False)
 
     def update(self, dt: float, road, all_traffic=None, player_car=None, pedestrians=None, cows=None):
         if self.honk_timer > 0:
@@ -1099,22 +1077,20 @@ class TrafficVehicle:
     def get_bounding_radius(self) -> float:
         return max(self.width, self.length) / 2.0 + SAFETY_MARGIN_CAR
 
-    def draw(self, surface: pygame.Surface, camera_y: float, show_radar: bool = True, show_hitbox: bool = False):
+    def draw(self, surface: pygame.Surface, camera_y: float):
         sy = self.y - camera_y
         h = surface.get_height()
         if sy < -100 or sy > h + 100:
             return
 
-        hw = int(self.width // 2)
-        hl = int(self.length // 2)
-
-        # Radar view is hidden for other cars in debug view (only hitboxes visible)
         surf_w = int(max(self.width, self.length) * 1.5)
         surf_h = surf_w
         veh_surf = pygame.Surface((surf_w, surf_h), pygame.SRCALPHA)
 
         cx = surf_w // 2
         cy = surf_h // 2
+        hw = self.width // 2
+        hl = self.length // 2
 
         body_rect = pygame.Rect(cx - hw, cy - hl, self.width, self.length)
         pygame.draw.rect(veh_surf, (20, 20, 20), body_rect, border_radius=4)
@@ -1627,13 +1603,13 @@ class ObstacleManager:
         cow_in_range = [cow for cow in self.cows if min_y <= cow.y <= max_y]
         return p_in_range, t_in_range, ped_in_range, cow_in_range
 
-    def draw(self, surface: pygame.Surface, camera_y: float, show_radar: bool = True, show_hitbox: bool = False):
+    def draw(self, surface: pygame.Surface, camera_y: float):
         for p in self.potholes:
-            p.draw(surface, camera_y, show_hitbox=show_hitbox)
+            p.draw(surface, camera_y)
         for cow in self.cows:
-            cow.draw(surface, camera_y, show_hitbox=show_hitbox)
+            cow.draw(surface, camera_y)
         for ped in self.pedestrians:
-            ped.draw(surface, camera_y, show_hitbox=show_hitbox)
+            ped.draw(surface, camera_y)
         for t in self.traffic:
             t.draw(surface, camera_y)
 

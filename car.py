@@ -343,8 +343,6 @@ class AutonomousCar:
         self.long_path: List[Tuple[float, float]] = []
         self.short_path: List[Tuple[float, float]] = []
         self.target_waypoint: Tuple[float, float] = (start_x, start_y - 60)
-        self.filtered_target_x = start_x
-        self.filtered_target_y = start_y - 60.0
         self.replan_timer = 0.0
         self.sim_time = 0.0
 
@@ -427,16 +425,7 @@ class AutonomousCar:
         p_nearby, t_nearby, ped_nearby, cow_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
 
         # 360° Circular Disc Sensor update
-        self.sensor.update(
-            vehicle=self,
-            road=road,
-            all_traffic=obstacles.traffic,
-            player_car=None,
-            pedestrians=obstacles.pedestrians,
-            cows=getattr(obstacles, 'cows', None),
-            potholes=obstacles.potholes,
-            dt=dt
-        )
+        self.sensor.update(self, road, obstacles, dt)
 
         if self.replan_timer >= PLANNER_REPLAN_INTERVAL or not self.path:
             self.replan_timer = 0.0
@@ -444,23 +433,18 @@ class AutonomousCar:
             self.long_path = getattr(planner, 'last_long_path', [])
             self.short_path = getattr(planner, 'last_short_path', [])
 
-        # 2. Pure Pursuit Path Tracking with Priority Safe-Distance Algorithm
+        # 2. Pure Pursuit Path Tracking with Realistic Steering Constraints
         # Lookahead distance scales smoothly to ensure gentle highway cornering
-        pursuit_dist = max(90.0, min(165.0, 60.0 + self.speed * 0.45))
-        raw_target = self._find_pursuit_target(pursuit_dist)
-
-        # Smooth filtered waypoint over time to completely eliminate abrupt snapping
-        filter_rate = min(1.0, 8.0 * dt)
-        self.filtered_target_x += (raw_target[0] - self.filtered_target_x) * filter_rate
-        self.filtered_target_y += (raw_target[1] - self.filtered_target_y) * filter_rate
-        target_pt = (self.filtered_target_x, self.filtered_target_y)
+        pursuit_dist = max(75.0, min(145.0, 50.0 + self.speed * 0.45))
+        target_pt = self._find_pursuit_target(pursuit_dist)
         self.target_waypoint = target_pt
 
         dx = target_pt[0] - self.x
         dy = target_pt[1] - self.y
         desired_heading = math.atan2(dx, -dy)
 
-        # Base A* pursuit steer
+        # Reduced turning rate and steering inertia (Realistic heavy vehicle steering)
+        # Apply circular disc lateral repulsion steering for reactive reflex avoidance
         angle_diff = (desired_heading - self.heading + math.pi) % (2 * math.pi) - math.pi
         target_steer = max(-PLAYER_STEER_SPEED, min(PLAYER_STEER_SPEED, angle_diff * 1.8 + self.sensor.repulsion_steer))
         self.steering_angle += (target_steer - self.steering_angle) * min(1.0, 3.8 * dt)
@@ -640,25 +624,19 @@ class AutonomousCar:
         curvature_factor = max(0.50, 1.0 - abs(angle_diff) * 0.70)
         effective_desired = self.target_speed * curvature_factor
 
-        # Zero-Collision Traffic Following & Stopping (165 px interaction horizon)
+        # Close proximity collision override with complete stop at rest
         for t in t_nearby:
             dy = self.y - t.y
             dx = abs(self.x - t.x)
-            corridor_w = (self.width + t.width) * 0.5 + 16.0
-            if 0 < dy < 165.0 and dx < corridor_w:
-                min_gap = (self.length + t.length) * 0.5 + 26.0
-                if dy <= min_gap:
-                    effective_desired = 0.0 # Complete halt behind lead vehicle!
-                    self.add_thought(f"Safe distance stop behind {t.vtype} ahead.", "WARN")
-                    self.honk_timer = 0.35
+            if 0 < dy < 95 and dx < (self.width + t.width) * 0.62:
+                min_gap = (self.length + t.length) * 0.5 + 24.0
+                if dy < min_gap:
+                    effective_desired = 0.0 # Full stop at rest!
+                    self.add_thought(f"Blocked by {t.vtype} ahead. Vehicle coming to full stop.", "WARN")
                 else:
-                    gap_avail = dy - min_gap
-                    gap_factor = max(0.0, min(1.0, gap_avail / 70.0))
-                    safe_follow_spd = t.speed * gap_factor
-                    if effective_desired > safe_follow_spd:
-                        effective_desired = safe_follow_spd
-                        if self.auto_mode:
-                            self.auto_speed_reason = f"FOLLOWING {t.vtype} ({int(safe_follow_spd*0.28)} km/h)"
+                    gap_factor = max(0.0, min(1.0, (dy - min_gap) / 45.0))
+                    effective_desired = min(effective_desired, t.speed * gap_factor)
+                self.honk_timer = 0.35
                 break
 
         for ped in ped_nearby:
@@ -841,23 +819,17 @@ class AutonomousCar:
         self.observations["traffic_count"] = traffic_surround_count
 
     def _find_pursuit_target(self, lookahead: float) -> Tuple[float, float]:
-        """Smoothly interpolates a lookahead target point along the A* trajectory."""
+        """Finds point on A* path ahead of vehicle by lookahead distance."""
         if not self.path:
             return (self.x, self.y - lookahead)
 
-        cum_dist = 0.0
-        prev_pt = (self.x, self.y)
-        for pt in self.path:
-            if pt[1] > self.y:
-                continue
-            seg_len = math.hypot(pt[0] - prev_pt[0], pt[1] - prev_pt[1])
-            if cum_dist + seg_len >= lookahead:
-                ratio = max(0.0, min(1.0, (lookahead - cum_dist) / max(0.1, seg_len)))
-                ix = prev_pt[0] + (pt[0] - prev_pt[0]) * ratio
-                iy = prev_pt[1] + (pt[1] - prev_pt[1]) * ratio
-                return (ix, iy)
-            cum_dist += seg_len
-            prev_pt = pt
+        for i in range(len(self.path) - 1):
+            p1 = self.path[i]
+            p2 = self.path[i+1]
+            if p2[1] < self.y:
+                dist = math.hypot(p2[0] - self.x, p2[1] - self.y)
+                if dist >= lookahead:
+                    return p2
 
         return self.path[-1]
 

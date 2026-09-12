@@ -16,20 +16,25 @@ A pure Pygame 2D simulation with **zero external backend or machine learning dep
 
 ## 🌟 Key Features
 
-1. **360° Clean Circular Disc Sensor & Rotated Hitboxes**:
-   - Omnidirectional perception disc with 3 concentric safety zones on the road (the rotating radar sweep line has been removed for a clean disc aesthetic):
-     - **Critical Red Zone ($R \approx 46$ px)**: Primary safe distance boundary. The vehicle actively keeps other cars out of this zone.
-     - **Caution Yellow Ring ($R \approx 98$ px)**: Dynamic traffic buffer where vehicles can drive close to each other naturally.
-     - **Perception Cyan Disc ($R \approx 175$ px)**: 360° situational tracking across 8 sectors.
-   - **Rotated Oriented Bounding Box (OBB) Hitboxes**:
-     - Vehicle hitboxes now turn, pitch, and shift dynamically with each vehicle's actual orientation and heading angle.
-     - Eliminates false overlap on curves and maintains accurate collision physics.
-     - Other traffic vehicles display only their rotated hitboxes (clean debug view without cluttering radar rings).
+1. **360° Circular Disc Sensor & AI Radar HUD**:
+   - Omnidirectional perception disc with 3 concentric safety zones:
+     - **Critical Core ($R = 46$ px)**: Immediate safety bubble that triggers automated emergency braking for solid collision hazards.
+     - **Caution Ring ($R = 105$ px)**: Reactive zone providing continuous lateral repulsion steering (`repulsion_steer`) to smoothly nudge the vehicle away from flank obstacles.
+     - **Perception Disc ($R = 180$ px)**: Wide-angle situational awareness across 8 radial sectors (`FRONT`, `FR`, `RIGHT`, `RR`, `REAR`, `RL`, `LEFT`, `FL`).
+   - Visually renders concentric zones, a rotating radar beam, pulsing sensor rings, and contact blip dots on the road.
+   - Embeds a real-time **360° mini radar HUD** inside the AI Cognitive Dashboard displaying sensor status, closest threat distance, and lateral repulsion percentages.
 
-2. **Red-Zone Safe Distance Priority & Predictive Slow Maneuver**:
-   - Safe distance priority focuses on keeping other vehicles **out of the red zone**.
-   - If an NPC vehicle enters the red zone, the vehicle does not freeze into a dead halt; instead, it **predicts where the other car will probably go** (based on its lateral velocity and trajectory) and **slowly crawls past it** (~12–18 km/h) into the open lane space!
-   - Applies to all vehicles except motorbikes (`BIKE`), which retain agile lane-filtering.
+2. **Cows Motivated by Horns & Deadlocks**:
+   - Cows react dynamically to acoustic horn pulses (within 210 px) and stopped vehicle deadlocks.
+   - When honked at or blocked, resting cows stand up, perk their ears, display an alert badge (`!`), and walk out of the drivable road lanes toward the shoulder (`state = 'CLEARING_ROAD'`).
+   - Autonomous vehicles and traffic vehicles automatically pulse their horns when blocked by bovine obstacles, smoothly clearing traffic jams.
+
+3. **Strict Safe Distance Cushion Between All Entities**:
+   - All vehicles maintain generous headway safety cushions:
+     - Vehicle-to-vehicle: 34 px bumper safety margin.
+     - Vehicle-to-pedestrian: 50 px margin.
+     - Vehicle-to-cow: 60 px margin.
+   - Traffic vehicles stop smoothly behind obstacles, preventing vehicle-vehicle and vehicle-pedestrian collisions.
 
 4. **Road-Aligned A\* Path Tracer (Curvature Direction Tracking)**:
    - Built on a moving **Frenet spatial lattice** parameterized by longitudinal progress along the road and lateral offset from the road centerline.
@@ -69,7 +74,6 @@ A pure Pygame 2D simulation with **zero external backend or machine learning dep
 
 | Key / Input | Action |
 |---|---|
-| **`H`** | **Toggle Hitboxes & Radar Overlay** (Entity bounding boxes and yellow buffer rings) |
 | **`TAB`** / **`T`** | **Toggle AI Cognitive Dashboard Sidebar** |
 | **`[` / `]`** | **Decrease / Increase Traffic Density** (10% steps) |
 | **Mouse Click & Drag** | **Adjust Traffic Density Slider** directly |
