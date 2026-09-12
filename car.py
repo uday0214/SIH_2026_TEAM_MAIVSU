@@ -355,7 +355,9 @@ class AutonomousCar:
             "safety_margin": 98,
             "sensor_dist": 180,
             "sensor_threat": "CLEAR",
-            "critical_breached": False
+            "critical_breached": False,
+            "traffic_regime": "EMPTY",
+            "traffic_count": 0
         }
 
         # State & Feedback
@@ -438,14 +440,63 @@ class AutonomousCar:
             self.heading = road_tangent - MAX_STEER_DEVIATION
             self.steering_angle = max(0.0, self.steering_angle)
 
-        # 3. Auto Speed Mode Adaptation & Deliberation
+        # 3. Traffic Density Sensing & Adaptive Speed Allowance
         rw = road.get_road_width(self.y)
         active_threat = "CLEAR"
 
+        # Sense surrounding and forward traffic around the vehicle
+        traffic_ahead_count = 0
+        traffic_surround_count = 0
+        traffic_congestion_score = 0.0
+
+        for t in t_nearby:
+            t_dy = self.y - t.y   # positive = ahead, negative = behind
+            t_dx = abs(self.x - t.x)
+            t_dist = math.hypot(t_dx, t_dy)
+            if -100.0 <= t_dy <= 340.0 and t_dx <= rw * 0.65:
+                traffic_surround_count += 1
+                if 0.0 < t_dy <= 300.0:
+                    traffic_ahead_count += 1
+                if t_dist < 280.0:
+                    traffic_congestion_score += max(0.0, 1.0 - (t_dist / 280.0))
+
+        # Classify Traffic Density Regime:
+        # - HEAVY: Dense traffic -> Low speed priority (defensive headway 95 - 120 px/s)
+        # - MODERATE: Medium traffic -> Paced speed (145 - 180 px/s)
+        # - LIGHT: Sparse traffic -> Standard cruise (185 - 230 px/s)
+        # - EMPTY: Empty road -> Higher speed allowance (up to PLAYER_MAX_SPEED 290 px/s / ~81 km/h)
+        if traffic_congestion_score >= 1.6 or traffic_surround_count >= 3 or traffic_ahead_count >= 2:
+            traffic_regime = "HEAVY"
+            traffic_speed_allowance = 115.0  # ~32 km/h (Low speed priority)
+            traffic_reason = "HEAVY TRAFFIC (LOW SPEED PRIORITY)"
+        elif traffic_congestion_score >= 0.7 or traffic_surround_count >= 2:
+            traffic_regime = "MODERATE"
+            traffic_speed_allowance = 175.0  # ~49 km/h (Paced speed)
+            traffic_reason = "MODERATE TRAFFIC (PACED SPEED)"
+        elif traffic_congestion_score > 0.15 or traffic_surround_count == 1:
+            traffic_regime = "LIGHT"
+            traffic_speed_allowance = 230.0  # ~64 km/h (Cruising)
+            traffic_reason = "LIGHT TRAFFIC (FLOWING)"
+        else:
+            traffic_regime = "EMPTY"
+            traffic_speed_allowance = PLAYER_MAX_SPEED  # 290 px/s (~81 km/h Higher speed allowance!)
+            traffic_reason = "EMPTY ROAD (HIGH SPEED ALLOWANCE)"
+
         if self.auto_mode:
             width_ratio = max(0.0, min(1.0, (rw - 210.0) / 190.0))
-            base_auto_speed = PLAYER_MIN_SPEED + 80.0 + width_ratio * 125.0
-            reason = "CRUISING (WIDE ROAD)" if width_ratio > 0.55 else "CHOKE POINT (NARROW)"
+            if traffic_regime == "EMPTY":
+                base_auto_speed = 220.0 + width_ratio * 70.0  # 220 - 290 px/s (~62 - 81 km/h)
+                reason = traffic_reason
+            elif traffic_regime == "HEAVY":
+                base_auto_speed = min(traffic_speed_allowance, 95.0 + width_ratio * 25.0)  # 95 - 120 px/s (~27 - 34 km/h)
+                reason = traffic_reason
+                self.add_thought("Dense traffic detected; prioritizing low speed and defensive headway.", "DECISION")
+            elif traffic_regime == "MODERATE":
+                base_auto_speed = min(traffic_speed_allowance, 145.0 + width_ratio * 35.0)
+                reason = traffic_reason
+            else: # LIGHT
+                base_auto_speed = min(traffic_speed_allowance, 185.0 + width_ratio * 45.0)
+                reason = traffic_reason
 
             # Road bottleneck cognition
             if rw < 240:
@@ -649,9 +700,18 @@ class AutonomousCar:
             if not getattr(p, 'hit', False) and abs(self.y - p.y) < 25 and abs(self.x - p.x) < 25:
                 if p.contains_point(self.x, self.y):
                     p.hit = True
-                    self.bump_shake = 1.0
+                    # Speed-scaled suspension impact: 40% harsher at high speed, 10% lower when crawling
+                    if self.speed > 180.0:
+                        self.bump_shake = 1.40  # +40% high speed penalty impact
+                        self.speed = max(0.0, self.speed - 35.0)  # Momentum loss from rim strike
+                        self.add_thought("High-speed pothole impact! Severe suspension shock (+40% penalty).", "ALERT")
+                    elif self.speed <= 80.0:
+                        self.bump_shake = 0.90  # 10% lower penalty for crawling
+                        self.add_thought("Traversed pothole crater at reduced crawl speed (-10% penalty).", "INFO")
+                    else:
+                        self.bump_shake = 1.0
+                        self.add_thought("Hit pothole crater! Suspension absorbing shock.", "WARN")
                     self.pothole_bumps += 1
-                    self.add_thought("Hit pothole crater! Suspension absorbing shock.", "WARN")
                     break
 
         # Dynamic Traffic
@@ -688,6 +748,8 @@ class AutonomousCar:
         self.observations["sensor_threat"] = self.sensor.nearest_threat
         self.observations["sensor_status"] = "ALERT" if self.sensor.critical_breached else ("CAUTION" if self.sensor.nearest_dist < self.sensor.r_mid else "CLEAR")
         self.observations["critical_breached"] = self.sensor.critical_breached
+        self.observations["traffic_regime"] = traffic_regime
+        self.observations["traffic_count"] = traffic_surround_count
 
     def _find_pursuit_target(self, lookahead: float) -> Tuple[float, float]:
         """Finds point on A* path ahead of vehicle by lookahead distance."""

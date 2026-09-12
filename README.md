@@ -1,3 +1,13 @@
+# TODO: 
+1. vehicle should not be able to turn when it is not in motion(v = 0)(done)
+2. turn off radar view using another keymap (done)
+3. sometimes the car does not move when a vehicle hits its red zone from behind(done)
+4. penalize the a* algorithm for varying a lot(done)
+5. add the potholes into the a* algorithm, creating red pixels on the road(done)
+6. the a* pathfinding algo does not go in forward direction evne when everything is empty ahead and deliberately tries to cut the road(improve A*)
+7.
+
+
 # Indian Highway Autonomous Driving (A* Pathfinding in Pygame)
 
 A pure Pygame 2D simulation with **zero external backend or machine learning dependencies**. It models an autonomous car navigating an infinite, curvy, unstructured Indian highway filled with potholes, unpaved shoulders, smart pedestrians, and authentic traffic using the **A\* (A-Star) search algorithm**.

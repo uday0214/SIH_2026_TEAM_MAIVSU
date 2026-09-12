@@ -316,6 +316,13 @@ class IndianHighwaySimulation:
         
         t_rw = self.font_small.render(f"Road Width: {obs['road_width']}px", True, (210, 225, 240))
         dash_surf.blit(t_rw, (210, y_cur))
+        y_cur += 18
+
+        t_reg = obs.get("traffic_regime", "EMPTY")
+        t_cnt = obs.get("traffic_count", 0)
+        reg_col = (0, 230, 255) if t_reg == "EMPTY" else (80, 240, 120) if t_reg == "LIGHT" else (255, 200, 40) if t_reg == "MODERATE" else (255, 75, 75)
+        t_traf = self.font_small.render(f"Traffic Density: {t_reg} ({t_cnt} nearby)", True, reg_col)
+        dash_surf.blit(t_traf, (14, y_cur))
         y_cur += 20
 
         # Safety Margin Bar

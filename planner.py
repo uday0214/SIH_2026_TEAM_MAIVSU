@@ -112,6 +112,17 @@ class AStarPlanner:
             else:
                 predicted_pedestrians.append((ped.x, ped.y, ped))
 
+        # Speed-dependent pothole penalty factor:
+        # Crawling speed (<= 80 px/s): 10% lower penalty (0.90x), enabling smooth crawl when necessary
+        # High speed (>= 200 px/s): 40% higher penalty (1.40x), strictly penalizing crater hits at speed
+        if car_speed <= 80.0:
+            speed_pothole_factor = 0.90
+        elif car_speed >= 200.0:
+            speed_pothole_factor = 1.40
+        else:
+            ratio = (car_speed - 80.0) / (200.0 - 80.0)
+            speed_pothole_factor = 0.90 + ratio * (1.40 - 0.90)
+
         obstacle_cells = []
 
         def compute_cell_cost(c: int, r: int) -> float:
@@ -128,7 +139,7 @@ class AStarPlanner:
             center_dist = abs(c * step_d) / (rw * 0.5)
             penalty = center_dist * 4.5
 
-            # 1. Potholes (Avoid if possible, but drivable at lower speed if unavoidable)
+            # 1. Potholes (Penalty scales with speed: +40% at high speed, -10% at crawl speed)
             for p in potholes:
                 dx = wx - p.x
                 dy = wy - p.y
@@ -136,10 +147,12 @@ class AStarPlanner:
                 safe_r = p.effective_radius + SAFETY_MARGIN_POTHOLE
                 if dist_sq <= (safe_r * safe_r):
                     dist = math.sqrt(dist_sq)
-                    penalty += 260.0 + (safe_r - dist) * 18.0
+                    base_cost = 260.0 + (safe_r - dist) * 18.0
+                    penalty += base_cost * speed_pothole_factor
                 elif dist_sq <= ((safe_r + 26) ** 2):
                     dist = math.sqrt(dist_sq)
-                    penalty += (safe_r + 26 - dist) * 12.0
+                    base_cost = (safe_r + 26 - dist) * 12.0
+                    penalty += base_cost * speed_pothole_factor
 
             # 2. Dynamic Traffic Vehicles
             for pred_x, pred_y, t in predicted_traffic:
@@ -264,13 +277,29 @@ class AStarPlanner:
 
                 neighbor = get_node(nc, nr)
                 step_dist = math.hypot(dc * step_d, dr * step_s)
-                tentative_g = current.g + step_dist * move_weight + cell_penalty
-
-                # Steering smoothness constraint relative to road:
+                # Path Curvature & Variability Penalties:
+                # Strictly penalize wavy, curvy, or rapidly oscillating trajectories
+                curviness_penalty = 0.0
                 if current.parent:
                     prev_dc = current.col - current.parent.col
-                    steering_diff = abs(dc - prev_dc)
-                    tentative_g += steering_diff * 8.0
+                    # 1. Curvature (rate of lateral change / turning jerk):
+                    curviness = abs(dc - prev_dc)
+                    curviness_penalty += curviness * 28.0
+
+                    # 2. S-curve direction reversal (penalizes alternating left-right swerves):
+                    if (prev_dc * dc) < 0:
+                        curviness_penalty += 45.0
+
+                    # 3. Multi-step oscillation check with grandparent:
+                    if current.parent.parent:
+                        g_dc = current.parent.col - current.parent.parent.col
+                        if (g_dc * prev_dc < 0) or (g_dc * dc > 0 and prev_dc * dc < 0):
+                            curviness_penalty += 60.0
+
+                # 4. Off-tangent lateral shift penalty (prefers straight lane-following down road)
+                curviness_penalty += abs(dc) * 4.0
+
+                tentative_g = current.g + step_dist * move_weight + cell_penalty + curviness_penalty
 
                 if tentative_g < neighbor.g:
                     neighbor.parent = current
