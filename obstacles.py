@@ -6,7 +6,7 @@ following and complete stop-at-rest support), and Jaywalking Pedestrians.
 import math
 import random
 import pygame
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 from config import (
     COLOR_POTHOLE_INNER, COLOR_POTHOLE_RIM,
     SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN,
@@ -945,6 +945,118 @@ class TrafficVehicle:
         rot_rect = rotated_surf.get_rect(center=(int(self.x), int(sy)))
         surface.blit(rotated_surf, rot_rect)
 
+    def get_velocity_vector(self) -> Tuple[float, float]:
+        """Returns instantaneous velocity vector (vx, vy) in world coordinates."""
+        return (self.vx, -self.speed)
+
+    def get_predicted_trajectory(self, road, duration: float = 2.0, steps: int = 5) -> List[Tuple[float, float]]:
+        """
+        Projects future positions along the vehicle's heading and lane trajectory
+        over the specified duration (seconds).
+        """
+        if self.speed <= 1.0 and abs(self.vx) <= 1.0:
+            return [(self.x, self.y)]
+
+        pts = [(self.x, self.y)]
+        dt_step = duration / max(1, steps)
+        curr_y = self.y
+        left, right, road_cx, _ = road.get_road_edges(curr_y)
+        safe_left = left + self.width * 0.65 + 6.0
+        safe_right = right - self.width * 0.65 - 6.0
+
+        for i in range(1, steps + 1):
+            tau = i * dt_step
+            fut_y = self.y - self.speed * tau
+            lanes, _ = road.get_virtual_lanes(fut_y)
+            if 0 <= self.lane_idx < len(lanes):
+                tgt_x = lanes[self.lane_idx] + self.sub_lane_jitter
+            else:
+                tgt_x = road.get_road_center(fut_y) + getattr(self, 'lateral_offset', 0.0)
+
+            tgt_x = max(safe_left, min(safe_right, tgt_x))
+            blend = min(1.0, tau * self.lat_accel)
+            fut_x = (self.x + self.vx * tau) * (1.0 - blend) + tgt_x * blend
+            pts.append((fut_x, fut_y))
+
+        return pts
+
+    def draw_direction_vector(self, surface: pygame.Surface, camera_y: float, road=None):
+        """
+        Renders the directional velocity vector and projected trajectory path in debug view.
+        """
+        sy = self.y - camera_y
+        h = surface.get_height()
+        if sy < -180 or sy > h + 180:
+            return
+
+        if self.speed <= 1.5 and abs(self.vx) <= 1.0:
+            # Standstill vehicle: small amber warning ring
+            pygame.draw.circle(surface, (255, 180, 50, 70), (int(self.x), int(sy)), int(self.width * 0.65), 1)
+            return
+
+        # Vector magnitude scales with speed
+        vec_len = max(32.0, min(130.0, self.length * 0.45 + self.speed * 0.65))
+
+        # Velocity direction unit vector
+        speed_mag = math.hypot(self.vx, -self.speed)
+        if speed_mag > 1.0:
+            dir_x = self.vx / speed_mag
+            dir_y = -self.speed / speed_mag
+        else:
+            dir_x = math.sin(self.heading)
+            dir_y = -math.cos(self.heading)
+
+        front_dist = self.length * 0.45
+        front_x = self.x + math.sin(self.heading) * front_dist
+        front_y = sy - math.cos(self.heading) * front_dist
+        tip_x = front_x + dir_x * vec_len
+        tip_y = front_y + dir_y * vec_len
+
+        # Styling: Orange-red if lane cutting, Gold if fast, Cyan if steady cruising
+        is_cutting = abs(self.vx) > 3.5
+        if is_cutting:
+            vec_color = (255, 110, 40, 230)
+            glow_color = (255, 80, 20, 95)
+        elif self.speed > 130.0:
+            vec_color = (255, 215, 0, 235)
+            glow_color = (255, 190, 0, 95)
+        else:
+            vec_color = (50, 230, 255, 215)
+            glow_color = (0, 190, 255, 85)
+
+        # Draw projected trajectory path if road is available
+        if road:
+            traj_pts = self.get_predicted_trajectory(road, duration=1.8, steps=5)
+            if len(traj_pts) >= 2:
+                screen_traj = [(int(px), int(py - camera_y)) for px, py in traj_pts]
+                for i in range(len(screen_traj) - 1):
+                    p1 = screen_traj[i]
+                    p2 = screen_traj[i+1]
+                    pygame.draw.line(surface, glow_color, p1, p2, 4)
+                    pygame.draw.line(surface, vec_color, p1, p2, 2)
+                for pt in screen_traj[1:]:
+                    pygame.draw.circle(surface, vec_color, pt, 3)
+
+        # Draw main direction vector line
+        pygame.draw.line(surface, glow_color, (int(front_x), int(front_y)), (int(tip_x), int(tip_y)), 5)
+        pygame.draw.line(surface, vec_color, (int(front_x), int(front_y)), (int(tip_x), int(tip_y)), 2)
+
+        # Draw arrowhead
+        arrow_size = 8.5
+        angle = math.atan2(dir_y, dir_x)
+        left_angle = angle + math.pi * 0.82
+        right_angle = angle - math.pi * 0.82
+
+        p_left = (tip_x + math.cos(left_angle) * arrow_size, tip_y + math.sin(left_angle) * arrow_size)
+        p_right = (tip_x + math.cos(right_angle) * arrow_size, tip_y + math.sin(right_angle) * arrow_size)
+
+        pygame.draw.polygon(surface, vec_color, [
+            (int(tip_x), int(tip_y)),
+            (int(p_left[0]), int(p_left[1])),
+            (int(p_right[0]), int(p_right[1]))
+        ])
+
+
 
 class ObstacleManager:
     def __init__(self, road):
@@ -1190,3 +1302,7 @@ class ObstacleManager:
             ped.draw(surface, camera_y)
         for t in self.traffic:
             t.draw(surface, camera_y)
+
+    def draw_traffic_vectors(self, surface: pygame.Surface, camera_y: float):
+        for t in self.traffic:
+            t.draw_direction_vector(surface, camera_y, self.road)

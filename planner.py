@@ -20,7 +20,8 @@ from config import (
     PLANNER_CELL_SIZE, PLANNER_LOOKAHEAD_DIST,
     PLANNER_LONG_LOOKAHEAD, PLANNER_SHORT_LOOKAHEAD,
     SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN,
-    PLAYER_WIDTH, POTHOLE_OBSTACLE_SPEED_THRESHOLD
+    PLAYER_WIDTH, POTHOLE_OBSTACLE_SPEED_THRESHOLD,
+    REAR_CUTIN_MIN_HEADWAY_SEC, REAR_CUTIN_SAFE_HEADWAY_SEC, REAR_CUTIN_MIN_GAP_PX
 )
 
 class GridNode:
@@ -226,7 +227,7 @@ class LongRangeAStarPlanner:
                         dist = math.sqrt(dist_sq)
                         penalty += (safe_r + 20.0 - dist) * 18.0 * speed_pothole_factor
 
-            # 2. Dynamic Traffic
+            # 2. Dynamic Traffic (Pure Obstacle Hitbox + Moving Direction Vector Corridor Avoidance)
             for pred_x, pred_y, t in predicted_traffic:
                 dx = abs(wx - pred_x)
                 dy = abs(wy - pred_y)
@@ -258,6 +259,49 @@ class LongRangeAStarPlanner:
                     return float('inf')
                 elif dx < (impassable_w + caution_buf) and dy < (impassable_l + caution_buf + 6.0):
                     penalty += 70.0 + (impassable_w + caution_buf - dx) * 4.5 + (impassable_l + caution_buf + 6.0 - dy) * 4.0
+
+            # Dynamic Traffic Direction Vector Check: Prevent long-range path from cutting into closing rear traffic
+            for t in traffic:
+                if t.speed <= 3.0:
+                    continue
+                if t.y > wy - 10.0:
+                    t_npc_arr = (t.y - wy) / max(t.speed, 5.0)
+                    t_car_arr = max(0.0, (car_y - wy) / max(car_speed, 45.0))
+
+                    lanes_wy, _ = self.road.get_virtual_lanes(wy)
+                    if 0 <= t.lane_idx < len(lanes_wy):
+                        tgt_lane_x = lanes_wy[t.lane_idx] + t.sub_lane_jitter
+                    else:
+                        tgt_lane_x = self.road.get_road_center(wy) + getattr(t, 'lateral_offset', 0.0)
+
+                    blend = min(1.0, t_npc_arr * t.lat_accel)
+                    npc_proj_x = (t.x + t.vx * t_npc_arr) * (1.0 - blend) + tgt_lane_x * blend
+
+                    corridor_dx = abs(wx - npc_proj_x)
+                    vtype = getattr(t, 'vtype', 'CAR')
+                    margin_w = 20.0 if vtype in ('TRUCK', 'BUS') else (14.0 if vtype == 'CAR' else 9.0)
+                    corridor_w = (t.width + PLAYER_WIDTH) * 0.5 + margin_w
+
+                    if corridor_dx < corridor_w:
+                        time_diff = abs(t_car_arr - t_npc_arr)
+                        if time_diff < 0.45:
+                            return float('inf')
+                        if t_npc_arr > t_car_arr:
+                            headway_time = t_npc_arr - t_car_arr
+                            headway_dist = t.speed * headway_time
+                            if headway_time < REAR_CUTIN_MIN_HEADWAY_SEC or headway_dist < REAR_CUTIN_MIN_GAP_PX:
+                                return float('inf')
+                            elif headway_time < REAR_CUTIN_SAFE_HEADWAY_SEC:
+                                v_closing = max(0.0, t.speed - car_speed)
+                                headway_ratio = (REAR_CUTIN_SAFE_HEADWAY_SEC - headway_time) / REAR_CUTIN_SAFE_HEADWAY_SEC
+                                lat_ratio = (corridor_w - corridor_dx) / corridor_w
+                                penalty += (180.0 + v_closing * 3.0) * headway_ratio * lat_ratio
+                        else:
+                            lag_time = t_car_arr - t_npc_arr
+                            if lag_time < 0.35 or (car_speed * lag_time < 32.0):
+                                return float('inf')
+                            elif lag_time < 0.85:
+                                penalty += (0.85 - lag_time) * 90.0
 
             # 3. Pedestrians
             for pred_px, pred_py, ped in predicted_pedestrians:
@@ -552,7 +596,7 @@ class ShortRangeAStarPlanner:
                         dist = math.sqrt(dist_sq)
                         penalty += (safe_r + 20.0 - dist) * 18.0 * speed_pothole_factor
 
-            # 2. Dynamic Traffic Vehicles (Pure Obstacle Hitbox + Dynamic Clearance Envelope)
+            # 2. Dynamic Traffic Vehicles (Pure Obstacle Hitbox + Moving Direction Vector Corridor Avoidance)
             for pred_x, pred_y, t in predicted_traffic:
                 dx = abs(wx - pred_x)
                 dy = abs(wy - pred_y)
@@ -584,6 +628,62 @@ class ShortRangeAStarPlanner:
                     return float('inf')
                 elif dx < (impassable_w + caution_buf) and dy < (impassable_l + caution_buf + 6.0):
                     penalty += 75.0 + (impassable_w + caution_buf - dx) * 4.5 + (impassable_l + caution_buf + 6.0 - dy) * 4.0
+
+            # Dynamic Traffic Direction Vector & Rear Cut-In Avoidance
+            # Prevents the vehicle from cutting into another lane directly into the path of a closing vehicle
+            for t in traffic:
+                if t.speed <= 3.0:
+                    continue
+
+                if t.y > wy - 10.0:
+                    t_npc_arr = (t.y - wy) / max(t.speed, 5.0)
+                    t_car_arr = max(0.0, (car_y - wy) / max(car_speed, 45.0))
+
+                    # Projected lateral position of vehicle t when reaching wy along its vector/lane
+                    lanes_wy, _ = self.road.get_virtual_lanes(wy)
+                    if 0 <= t.lane_idx < len(lanes_wy):
+                        tgt_lane_x = lanes_wy[t.lane_idx] + t.sub_lane_jitter
+                    else:
+                        tgt_lane_x = self.road.get_road_center(wy) + getattr(t, 'lateral_offset', 0.0)
+
+                    blend = min(1.0, t_npc_arr * t.lat_accel)
+                    npc_proj_x = (t.x + t.vx * t_npc_arr) * (1.0 - blend) + tgt_lane_x * blend
+
+                    corridor_dx = abs(wx - npc_proj_x)
+                    vtype = getattr(t, 'vtype', 'CAR')
+                    margin_w = 20.0 if vtype in ('TRUCK', 'BUS') else (14.0 if vtype == 'CAR' else 9.0)
+                    corridor_w = (t.width + PLAYER_WIDTH) * 0.5 + margin_w
+
+                    if corridor_dx < corridor_w:
+                        # Direct trajectory corridor conflict
+                        time_diff = abs(t_car_arr - t_npc_arr)
+                        if time_diff < 0.45:
+                            # Direct lateral collision / simultaneous arrival!
+                            return float('inf')
+
+                        if t_npc_arr > t_car_arr:
+                            # Player arrives at wy ahead of vehicle t (cutting in front of t)
+                            headway_time = t_npc_arr - t_car_arr
+                            headway_dist = t.speed * headway_time
+
+                            if headway_time < REAR_CUTIN_MIN_HEADWAY_SEC or headway_dist < REAR_CUTIN_MIN_GAP_PX:
+                                return float('inf')  # Critical rear-end collision hazard: impassable
+                            elif headway_time < REAR_CUTIN_SAFE_HEADWAY_SEC:
+                                v_closing = max(0.0, t.speed - car_speed)
+                                headway_ratio = (REAR_CUTIN_SAFE_HEADWAY_SEC - headway_time) / REAR_CUTIN_SAFE_HEADWAY_SEC
+                                lat_ratio = (corridor_w - corridor_dx) / corridor_w
+                                vtype_weight = 1.5 if vtype in ('TRUCK', 'BUS') else 1.0
+                                penalty += (210.0 + v_closing * 3.5) * headway_ratio * lat_ratio * vtype_weight
+                        else:
+                            # Player arrives at wy after vehicle t (cutting right behind t)
+                            lag_time = t_car_arr - t_npc_arr
+                            if lag_time < 0.35 or (car_speed * lag_time < 32.0):
+                                return float('inf')  # Cutting dangerously close to vehicle's tail
+                            elif lag_time < 0.85:
+                                penalty += (0.85 - lag_time) * 110.0
+                    elif corridor_dx < (corridor_w + 16.0):
+                        if abs(t_car_arr - t_npc_arr) < 0.80:
+                            penalty += (corridor_w + 16.0 - corridor_dx) * 7.0
 
             # 3. Pedestrians
             for pred_px, pred_py, ped in predicted_pedestrians:

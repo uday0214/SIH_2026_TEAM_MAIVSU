@@ -406,7 +406,7 @@ class AutonomousCar:
         # 1. Periodic A* Replanning
         self.replan_timer += dt
         min_y = self.y - (PLANNER_LONG_LOOKAHEAD + 60.0)
-        max_y = self.y + 60
+        max_y = self.y + 220.0   # Capture trailing traffic closing from behind
         p_nearby, t_nearby, ped_nearby, cow_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
 
         # 360° Circular Disc Sensor update
@@ -549,6 +549,20 @@ class AutonomousCar:
                     active_threat = f"{t.vtype}_AHEAD"
                     self.add_thought(f"Behind slow {t.vtype} ({int(t.speed*0.28)} km/h). Seeking overtake lane.", "DECISION")
                     break
+
+            # Trailing traffic rear-end hazard check
+            for t in t_nearby:
+                t_rear_dy = t.y - self.y  # positive if t is behind us
+                if 0 < t_rear_dy < 180 and t.speed > self.speed + 15.0:
+                    t_dx = abs(t.x - self.x)
+                    if t_dx < 38.0:
+                        # Direct tailgater in our lane: pace up if road is clear ahead
+                        if self.target_speed < t.speed * 0.95 and reason == traffic_reason:
+                            base_auto_speed = min(base_auto_speed + 25.0, t.speed)
+                            self.add_thought(f"Rear traffic closing fast ({int(t.speed*0.28)} km/h); pacing up safely.", "DECISION")
+                    elif t_dx < 85.0 and abs(self.target_waypoint[0] - t.x) < 36.0:
+                        # Approaching in the lane we are steering toward
+                        self.add_thought(f"TRAFFIC VECTOR: {t.vtype} approaching at {int(t.speed*0.28)} km/h in target lane; deferring cut.", "WARN")
 
             # Cow hazard cognition (predict behavior and adjust trajectory early from far off)
             for cow in cow_nearby:

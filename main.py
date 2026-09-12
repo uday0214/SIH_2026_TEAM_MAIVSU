@@ -38,6 +38,7 @@ class IndianHighwaySimulation:
         self.paused = False
         self.show_debug = True
         self.show_radar = True      # Toggleable 360° Circular Disc Radar on road
+        self.show_traffic_vectors = True  # Toggleable NPC Direction Vectors in debug view
         self.show_dashboard = True  # Toggleable AI Thoughts & Decision Dashboard
         self.dragging_slider = False # Mouse drag state for traffic density slider
         self.roadside_props = []
@@ -121,6 +122,8 @@ class IndianHighwaySimulation:
                     self.show_debug = not self.show_debug
                 elif event.key in (pygame.K_h, pygame.K_s):
                     self.show_radar = not self.show_radar
+                elif event.key == pygame.K_v:
+                    self.show_traffic_vectors = not self.show_traffic_vectors
                 elif event.key in (pygame.K_TAB, pygame.K_t):
                     self.show_dashboard = not self.show_dashboard
                 elif event.key == pygame.K_a:
@@ -241,11 +244,15 @@ class IndianHighwaySimulation:
                              (int(self.car.x), int(self.car.y - self.camera_y)),
                              (int(tx), int(tsy)), 1)
 
+        # Render Moving NPC Direction Vectors & Predicted Trajectory Corridors
+        if self.show_traffic_vectors:
+            self.obstacles.draw_traffic_vectors(debug_surf, self.camera_y)
+
         self.screen.blit(debug_surf, (0, 0))
 
     def draw_hud(self):
         """Top-left Telemetry Card."""
-        hud_w, hud_h = 410, 248
+        hud_w, hud_h = 440, 248
         hud_surf = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
         pygame.draw.rect(hud_surf, (14, 18, 24, 220), (0, 0, hud_w, hud_h), border_radius=10)
         pygame.draw.rect(hud_surf, (0, 180, 230, 120), (0, 0, hud_w, hud_h), width=2, border_radius=10)
@@ -268,7 +275,7 @@ class IndianHighwaySimulation:
             (f"Speed: {speed_kmh} km/h (Target: {target_kmh})  |  FPS: {fps}", (255, 255, 255), self.font_medium),
             (f"Mode [A]: {auto_str}", auto_col, self.font_medium),
             (f"Road Width: {rw} px{rw_status}  |  Dist: {dist_m} m", (210, 225, 235), self.font_medium),
-            (f"A* Debug [D]: {'ON' if self.show_debug else 'OFF'}  |  Radar [H]: {'ON' if self.show_radar else 'OFF'}",
+            (f"Debug [D]: {'ON' if self.show_debug else 'OFF'}  |  Radar [H]: {'ON' if self.show_radar else 'OFF'}  |  Vectors [V]: {'ON' if self.show_traffic_vectors else 'OFF'}",
              (0, 235, 255), self.font_medium),
             (f"Dual A*: {self.planner.nodes_explored_count} nodes ({short_nodes} local | {long_nodes} global)", (255, 220, 80), self.font_medium),
             (f"Potholes: {self.obstacles.potholes_avoided} dodged | Hits: {self.car.pothole_bumps}",

@@ -72,3 +72,9 @@ POTHOLE_OBSTACLE_SPEED_THRESHOLD = 23.5
 
 # Rest Acceleration Reduction (20% reduction when accelerating from rest)
 REST_ACCEL_FACTOR = 0.80
+
+# Traffic Direction Vector & Rear Cut-In Avoidance Parameters
+TRAFFIC_VECTOR_PRED_HORIZON = 2.0       # Projection horizon for traffic vectors (seconds)
+REAR_CUTIN_MIN_HEADWAY_SEC = 0.70       # Min headway required to cut into adjacent lane (seconds)
+REAR_CUTIN_SAFE_HEADWAY_SEC = 1.80      # Headway horizon where rear penalty applies (seconds)
+REAR_CUTIN_MIN_GAP_PX = 60.0            # Min physical gap behind when cutting into lane (px)
