@@ -3,10 +3,10 @@ Simulation configuration and constants.
 """
 
 # Screen & Display
-SCREEN_WIDTH = 1260
-SCREEN_HEIGHT = 760
+SCREEN_WIDTH = 1440
+SCREEN_HEIGHT = 860
 FPS = 60
-TITLE = "Indian Highway Autonomous Driving (A* Pathfinding)"
+TITLE = "Autonomous(A*) Driving on Indian Roads"
 
 # Colors (RGB)
 COLOR_BG_GRASS = (46, 89, 44)         # Dry lush roadside greenery / patchy ground
@@ -49,6 +49,8 @@ PLAYER_STEER_DAMPING = 0.88            # Inertial heading smoothing
 # A* Planner Parameters
 PLANNER_CELL_SIZE = 16                 # Grid resolution (pixels per cell)
 PLANNER_LOOKAHEAD_DIST = 380           # Planning horizon ahead of car (px)
+PLANNER_LONG_LOOKAHEAD = 500.0         # Strategic long-range corridor horizon (px)
+PLANNER_SHORT_LOOKAHEAD = 185.0        # Reactive short-range obstacle horizon (px)
 PLANNER_LATERAL_SPAN = 300             # Width of local search grid (px)
 PLANNER_REPLAN_INTERVAL = 0.08         # Replan frequency in seconds (12.5 Hz)
 SAFETY_MARGIN_CAR = 18                 # Buffer distance around vehicles
@@ -62,3 +64,22 @@ PEDESTRIAN_SPAWN_INTERVAL = (140, 310) # Vertical distance between pedestrians
 MAX_TRAFFIC_AHEAD = 7
 MAX_POTHOLES_AHEAD = 12
 MAX_PEDESTRIANS_AHEAD = 8
+
+# Pothole Obstacle Speed Threshold (px/s)
+# At speeds > 6-7 km/h (~23.5 px/s), all potholes are treated as pure obstacles with infinite cost.
+# Below this threshold, vehicles crawl across with finite penalty.
+POTHOLE_OBSTACLE_SPEED_THRESHOLD = 23.5
+
+# Rest Acceleration Reduction (20% reduction when accelerating from rest)
+REST_ACCEL_FACTOR = 0.80
+
+# Traffic Direction Vector & Rear Cut-In Avoidance Parameters
+TRAFFIC_VECTOR_PRED_HORIZON = 2.0       # Projection horizon for traffic vectors (seconds)
+REAR_CUTIN_MIN_HEADWAY_SEC = 0.70       # Min headway required to cut into adjacent lane (seconds)
+REAR_CUTIN_SAFE_HEADWAY_SEC = 1.80      # Headway horizon where rear penalty applies (seconds)
+REAR_CUTIN_MIN_GAP_PX = 60.0            # Min physical gap behind when cutting into lane (px)
+
+# Vehicle Collision & Crowded Speed Penalties
+VEHICLE_COLLISION_PENALTY_SCALE = 1.60   # +60% penalty increase for vehicle collisions across all vehicles
+CROWDED_AREA_SPEED_PENALTY_MAX = 0.20    # Up to 20% additional penalty for high speeds in crowded areas
+CROWDED_NEIGHBOR_RADIUS = 150.0          # Spatial radius to detect crowded vehicle clusters (px)

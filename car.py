@@ -10,10 +10,316 @@ from config import (
     PLAYER_WIDTH, PLAYER_LENGTH,
     PLAYER_BASE_SPEED, PLAYER_MAX_SPEED, PLAYER_MIN_SPEED,
     PLAYER_ACCEL, PLAYER_DECEL, PLAYER_STEER_SPEED, MAX_STEER_DEVIATION,
-    PLANNER_REPLAN_INTERVAL
+    PLANNER_REPLAN_INTERVAL, POTHOLE_OBSTACLE_SPEED_THRESHOLD, REST_ACCEL_FACTOR,
+    PLANNER_LONG_LOOKAHEAD,
+    VEHICLE_COLLISION_PENALTY_SCALE, CROWDED_AREA_SPEED_PENALTY_MAX, CROWDED_NEIGHBOR_RADIUS
 )
-from sensor import CircularDiscSensor
+from obstacles import negotiate_deadlock_priority
 
+class CircularDiscSensor:
+    """
+    Omnidirectional 360° Circular Disc Sensor Field.
+    Provides immediate reflexive awareness, sector-based threat localization,
+    reactive lateral repulsion away from flank hazards, and automated directional horn.
+    """
+    SECTORS = ['FRONT', 'FR', 'RIGHT', 'RR', 'REAR', 'RL', 'LEFT', 'FL']
+    FORWARD_SECTORS = {'FRONT', 'FL', 'FR'}
+    FLANK_SECTORS = {'LEFT', 'RIGHT'}
+    REAR_SECTORS = {'REAR', 'RL', 'RR'}
+
+    def __init__(self):
+        self.r_inner = 46.0   # Critical Core (Emergency reflex stop)
+        self.r_mid = 105.0    # Caution Buffer (Repulsive steering & easing)
+        self.r_outer = 180.0  # Perception Disc (Scanning radar)
+
+        self.sector_distances = {s: 180.0 for s in self.SECTORS}
+        self.sector_threats = {s: 'CLEAR' for s in self.SECTORS}
+        self.sector_points = {s: None for s in self.SECTORS}
+
+        self.sweep_angle = 0.0
+        self.pulse_phase = 0.0
+        self.critical_breached = False
+        self.repulsion_steer = 0.0
+        self.nearest_dist = 180.0
+        self.nearest_threat = 'CLEAR'
+
+        # Directional Threat & Obstacle Tracking
+        self.red_zone_tracks = []
+        self.forward_hazard_present = False
+        self.rear_hazard_present = False
+        self.flank_hazard_present = False
+        self.forward_blocker_info = None
+        self.rear_blocker_info = None
+
+    def update(self, car, road, obstacles, dt: float):
+        self.sweep_angle = (self.sweep_angle + dt * 4.6) % (2 * math.pi)
+        self.pulse_phase = (self.pulse_phase + dt * 2.6) % 1.0
+
+        for s in self.SECTORS:
+            self.sector_distances[s] = self.r_outer
+            self.sector_threats[s] = 'CLEAR'
+            self.sector_points[s] = None
+
+        self.red_zone_tracks = []
+        self.forward_hazard_present = False
+        self.rear_hazard_present = False
+        self.flank_hazard_present = False
+        self.forward_blocker_info = None
+        self.rear_blocker_info = None
+
+        min_y = car.y - self.r_outer - 25.0
+        max_y = car.y + self.r_outer + 25.0
+        p_nearby, t_nearby, ped_nearby, cow_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
+
+        # Collect candidate proximity contact points with dynamic vehicle clearance & pothole obstacle status
+        contacts = []
+
+        for t in t_nearby:
+            vtype = getattr(t, 'vtype', 'CAR')
+            t_margin = 20.0 if vtype in ('TRUCK', 'BUS') else (13.0 if vtype == 'CAR' else (8.0 if vtype == 'AUTO' else 5.0))
+            contacts.append((t.x, t.y, f"TRAFFIC_{vtype}", t.width * 0.5 + t_margin, t))
+        for ped in ped_nearby:
+            contacts.append((ped.x, ped.y, 'PEDESTRIAN', ped.radius, ped))
+        for cow in cow_nearby:
+            contacts.append((cow.x, cow.y, 'COW', cow.radius, cow))
+        for p in p_nearby:
+            # Potholes above crawl threshold (> 6-7 km/h, ~23.5 px/s) are pure obstacles in radar
+            p_is_obstacle = (car.speed > POTHOLE_OBSTACLE_SPEED_THRESHOLD)
+            p_type = 'POTHOLE_OBSTACLE' if p_is_obstacle else 'POTHOLE_CRAWL'
+            contacts.append((p.x, p.y, p_type, p.effective_radius + 4.0, p))
+
+        # Road boundaries
+        for sample_y in [car.y - 75.0, car.y, car.y + 75.0]:
+            left, right, _, _ = road.get_road_edges(sample_y)
+            contacts.append((left, sample_y, 'ROAD_EDGE', 6.0, None))
+            contacts.append((right, sample_y, 'ROAD_EDGE', 6.0, None))
+
+        nearest_d = self.r_outer
+        nearest_t = 'CLEAR'
+
+        sin_h = math.sin(car.heading)
+        cos_h = math.cos(car.heading)
+
+        for ox, oy, otype, rad, obj_ref in contacts:
+            dx = ox - car.x
+            dy = oy - car.y
+            raw_dist = math.hypot(dx, dy)
+            eff_dist = max(0.0, raw_dist - rad)
+
+            if eff_dist < self.r_outer:
+                # Calculate relative bearing angle relative to car heading
+                abs_ang = math.atan2(dx, -dy)
+                rel_ang = (abs_ang - car.heading + math.pi) % (2 * math.pi) - math.pi
+                deg = math.degrees(rel_ang)
+
+                # Map to 8 radial sectors
+                if -22.5 <= deg < 22.5:
+                    sec = 'FRONT'
+                elif 22.5 <= deg < 67.5:
+                    sec = 'FR'
+                elif 67.5 <= deg < 112.5:
+                    sec = 'RIGHT'
+                elif 112.5 <= deg < 157.5:
+                    sec = 'RR'
+                elif deg >= 157.5 or deg < -157.5:
+                    sec = 'REAR'
+                elif -157.5 <= deg < -112.5:
+                    sec = 'RL'
+                elif -112.5 <= deg < -67.5:
+                    sec = 'LEFT'
+                else:
+                    sec = 'FL'
+
+                if eff_dist < self.sector_distances[sec]:
+                    self.sector_distances[sec] = eff_dist
+                    self.sector_threats[sec] = otype
+                    self.sector_points[sec] = (ox, oy)
+
+                if eff_dist < nearest_d:
+                    nearest_d = eff_dist
+                    nearest_t = otype
+
+                # Directional Red Zone Analysis:
+                # Projects obstacle location onto vehicle heading and movement axis.
+                # Only solid physical obstacles (vehicles, pedestrians, cows) trigger emergency sensor halts.
+                if eff_dist < self.r_inner and otype not in ['CLEAR', 'POTHOLE_CRAWL', 'POTHOLE_OBSTACLE', 'ROAD_EDGE']:
+                    # d_fwd: positive in front of vehicle heading, negative behind
+                    # d_lat: positive to right of vehicle heading, negative to left
+                    d_fwd = dx * sin_h - dy * cos_h
+                    d_lat = dx * cos_h + dy * sin_h
+
+                    # Forward trajectory corridor overlap check
+                    in_forward_cone = sec in self.FORWARD_SECTORS
+                    lateral_path_overlap = abs(d_lat) < (car.width * 0.5 + rad + 6.0)
+
+                    # Determine how this obstacle affects our direction of travel
+                    is_forward_hazard = (d_fwd > -2.0) and (in_forward_cone or lateral_path_overlap)
+                    is_rear_hazard = (sec in self.REAR_SECTORS) or (d_fwd <= -2.0)
+                    is_flank_hazard = (sec in self.FLANK_SECTORS) and not is_forward_hazard and not is_rear_hazard
+
+                    track_info = {
+                        'sector': sec,
+                        'type': otype,
+                        'dist': eff_dist,
+                        'd_fwd': d_fwd,
+                        'd_lat': d_lat,
+                        'is_forward_hazard': is_forward_hazard,
+                        'is_rear_hazard': is_rear_hazard,
+                        'is_flank_hazard': is_flank_hazard,
+                        'point': (ox, oy),
+                        'ref': obj_ref
+                    }
+                    self.red_zone_tracks.append(track_info)
+
+                    if is_forward_hazard:
+                        self.forward_hazard_present = True
+                        if self.forward_blocker_info is None or eff_dist < self.forward_blocker_info['dist']:
+                            self.forward_blocker_info = track_info
+                    elif is_rear_hazard:
+                        self.rear_hazard_present = True
+                        if self.rear_blocker_info is None or eff_dist < self.rear_blocker_info['dist']:
+                            self.rear_blocker_info = track_info
+                    elif is_flank_hazard:
+                        self.flank_hazard_present = True
+
+        self.nearest_dist = nearest_d
+        self.nearest_threat = nearest_t
+
+        # 1. Critical core breach check:
+        # ONLY triggers emergency halt when an obstacle is an actual obstruction in our forward path!
+        # Obstacles trailing behind us in the rear red zone NEVER trigger an emergency stop.
+        self.critical_breached = self.forward_hazard_present
+
+        # 2. Reactive lateral repulsion away from flank hazards
+        d_left = min(self.sector_distances['LEFT'], self.sector_distances['FL'], self.sector_distances['RL'])
+        d_right = min(self.sector_distances['RIGHT'], self.sector_distances['FR'], self.sector_distances['RR'])
+
+        rep_left = max(0.0, (self.r_mid - d_left) / self.r_mid) if d_left < self.r_mid else 0.0
+        rep_right = max(0.0, (self.r_mid - d_right) / self.r_mid) if d_right < self.r_mid else 0.0
+        # Positive repulsion steers right; negative steers left
+        self.repulsion_steer = (rep_left - rep_right) * 0.40
+
+        # 3. Automated directional horn trigger (alerts cows and pedestrians to clear out of the way)
+        front_d = min(self.sector_distances['FRONT'], self.sector_distances['FL'], self.sector_distances['FR'])
+        front_threat = self.sector_threats['FRONT']
+        if ('COW' in front_threat or 'PEDESTRIAN' in front_threat) and front_d < 145.0:
+            if car.honk_timer <= 0.05:
+                car.honk_timer = 0.45
+                if 'COW' in front_threat:
+                    car.add_thought("SENSOR DISC: Bovine obstacle in front sector; pulsing horn.", "WARN")
+                else:
+                    car.add_thought("SENSOR DISC: Pedestrian proximity breach; sounding horn warning.", "WARN")
+
+    def draw_world(self, surface: pygame.Surface, car, camera_y: float):
+        sy = car.y - camera_y
+        h = surface.get_height()
+        if sy < -self.r_outer or sy > h + self.r_outer:
+            return
+
+        cx = int(car.x)
+        cy = int(sy)
+
+        disc_size = int(self.r_outer * 2 + 10)
+        disc_surf = pygame.Surface((disc_size, disc_size), pygame.SRCALPHA)
+        dcx = disc_size // 2
+        dcy = disc_size // 2
+
+        # 1. Outer Perception Disc (Transparent Cyan Field)
+        pygame.draw.circle(disc_surf, (0, 225, 255, 18), (dcx, dcy), int(self.r_outer))
+        pygame.draw.circle(disc_surf, (0, 220, 255, 60), (dcx, dcy), int(self.r_outer), width=1)
+
+        # 2. Caution Buffer Disc (Soft Amber)
+        pygame.draw.circle(disc_surf, (255, 200, 40, 22), (dcx, dcy), int(self.r_mid))
+        pygame.draw.circle(disc_surf, (255, 200, 40, 75), (dcx, dcy), int(self.r_mid), width=1)
+
+        # 3. Critical Core Safety Bubble (Red alert if forward hazard, amber if rear follower)
+        if self.forward_hazard_present:
+            core_alpha = 110
+            core_col = (255, 45, 45)
+            core_width = 2
+        elif self.rear_hazard_present:
+            core_alpha = 65
+            core_col = (255, 160, 30)
+            core_width = 1
+        elif self.flank_hazard_present:
+            core_alpha = 55
+            core_col = (255, 200, 40)
+            core_width = 1
+        else:
+            core_alpha = 25
+            core_col = (255, 50, 50)
+            core_width = 1
+
+        pygame.draw.circle(disc_surf, (*core_col, core_alpha), (dcx, dcy), int(self.r_inner))
+        pygame.draw.circle(disc_surf, (*core_col, 140 if (self.forward_hazard_present or self.rear_hazard_present) else 60),
+                           (dcx, dcy), int(self.r_inner), width=core_width)
+
+        # 4. Pulsing Wave Ring
+        pulse_r = int(self.r_inner + self.pulse_phase * (self.r_outer - self.r_inner))
+        pulse_alpha = int(70 * (1.0 - self.pulse_phase))
+        pygame.draw.circle(disc_surf, (0, 240, 255, pulse_alpha), (dcx, dcy), pulse_r, width=1)
+
+        # 5. Rotating Radar Sweep Beam
+        beam_len = self.r_outer - 4
+        sw_x = dcx + math.sin(self.sweep_angle) * beam_len
+        sw_y = dcy - math.cos(self.sweep_angle) * beam_len
+        pygame.draw.line(disc_surf, (180, 255, 255, 130), (dcx, dcy), (int(sw_x), int(sw_y)), 2)
+
+        # Trailing sweep glow
+        trail_angle = self.sweep_angle - 0.25
+        tr_x = dcx + math.sin(trail_angle) * beam_len * 0.95
+        tr_y = dcy - math.cos(trail_angle) * beam_len * 0.95
+        pygame.draw.polygon(disc_surf, (0, 230, 255, 30), [(dcx, dcy), (int(sw_x), int(sw_y)), (int(tr_x), int(tr_y))])
+
+        # 6. Sector Contact Blips
+        for sec, pt in self.sector_points.items():
+            if pt is not None and self.sector_distances[sec] < self.r_outer:
+                bdx = pt[0] - car.x
+                bdy = pt[1] - car.y
+                bx = int(dcx + bdx)
+                by = int(dcy + bdy)
+                if 0 <= bx < disc_size and 0 <= by < disc_size:
+                    dist = self.sector_distances[sec]
+                    b_col = (255, 60, 60) if dist < self.r_inner else (255, 200, 40) if dist < self.r_mid else (0, 235, 255)
+                    pygame.draw.circle(disc_surf, b_col, (bx, by), 4)
+                    pygame.draw.circle(disc_surf, (255, 255, 255), (bx, by), 6, width=1)
+
+        surface.blit(disc_surf, (cx - dcx, cy - dcy))
+
+    def draw_radar_hud(self, surface: pygame.Surface, cx: int, cy: int, radius: int = 54):
+        """Draws a circular 360° radar display for the AI sidebar dashboard."""
+        pygame.draw.circle(surface, (15, 24, 34), (cx, cy), radius)
+        pygame.draw.circle(surface, (0, 180, 230), (cx, cy), radius, width=2)
+        pygame.draw.circle(surface, (255, 200, 40), (cx, cy), int(radius * 0.60), width=1)
+        pygame.draw.circle(surface, (255, 60, 60), (cx, cy), int(radius * 0.28), width=1)
+
+        # Crosshairs
+        pygame.draw.line(surface, (40, 70, 95), (cx - radius, cy), (cx + radius, cy), 1)
+        pygame.draw.line(surface, (40, 70, 95), (cx, cy - radius), (cx, cy + radius), 1)
+
+        # Sweeping radar line
+        sw_x = cx + math.sin(self.sweep_angle) * (radius - 2)
+        sw_y = cy - math.cos(self.sweep_angle) * (radius - 2)
+        pygame.draw.line(surface, (0, 240, 255), (cx, cy), (int(sw_x), int(sw_y)), 2)
+
+        # Plot contact dots
+        for sec, dist in self.sector_distances.items():
+            if dist < self.r_outer and self.sector_threats[sec] != 'CLEAR':
+                ratio = dist / self.r_outer
+                r_dist = int(ratio * (radius - 4))
+                # Approximate bearing of sector
+                sec_angles = {
+                    'FRONT': 0.0, 'FR': 0.78, 'RIGHT': 1.57, 'RR': 2.36,
+                    'REAR': 3.14, 'RL': -2.36, 'LEFT': -1.57, 'FL': -0.78
+                }
+                ang = sec_angles.get(sec, 0.0)
+                px = cx + math.sin(ang) * r_dist
+                py = cy - math.cos(ang) * r_dist
+                p_col = (255, 60, 60) if dist < self.r_inner else (255, 200, 40) if dist < self.r_mid else (0, 220, 255)
+                pygame.draw.circle(surface, p_col, (int(px), int(py)), 3)
+
+        # Car icon in center
+        pygame.draw.rect(surface, (0, 220, 255), (cx - 3, cy - 5, 6, 10), border_radius=2)
 
 
 class AutonomousCar:
@@ -34,6 +340,8 @@ class AutonomousCar:
 
         # A* Path tracking
         self.path: List[Tuple[float, float]] = []
+        self.long_path: List[Tuple[float, float]] = []
+        self.short_path: List[Tuple[float, float]] = []
         self.target_waypoint: Tuple[float, float] = (start_x, start_y - 60)
         self.filtered_target_x = start_x
         self.filtered_target_y = start_y - 60.0
@@ -51,6 +359,10 @@ class AutonomousCar:
         ]
         self.last_thought_time = 0.0
         self.last_thought_text = ""
+        self.total_decisions = 0
+        self.total_warnings = 0
+        self.total_other_signals = len(self.thoughts_log)
+        self.total_signals = len(self.thoughts_log)
         self.observations = {
             "road_width": 320,
             "road_curve": 0.0,
@@ -61,7 +373,9 @@ class AutonomousCar:
             "safety_margin": 98,
             "sensor_dist": 180,
             "sensor_threat": "CLEAR",
-            "critical_breached": False
+            "critical_breached": False,
+            "traffic_regime": "EMPTY",
+            "traffic_count": 0
         }
 
         # State & Feedback
@@ -93,13 +407,23 @@ class AutonomousCar:
         if len(self.thoughts_log) > 10:
             self.thoughts_log.pop(0)
 
+        # Track cumulative signals generated for cognitive dashboard
+        tag_u = tag.upper()
+        if tag_u == "DECISION":
+            self.total_decisions += 1
+        elif tag_u in ("WARN", "WARNING", "ALERT", "CAUTION"):
+            self.total_warnings += 1
+        else:
+            self.total_other_signals += 1
+        self.total_signals += 1
+
     def update(self, dt: float, road, obstacles, planner):
         self.sim_time += dt
 
         # 1. Periodic A* Replanning
         self.replan_timer += dt
-        min_y = self.y - 480
-        max_y = self.y + 60
+        min_y = self.y - (PLANNER_LONG_LOOKAHEAD + 60.0)
+        max_y = self.y + 220.0   # Capture trailing traffic closing from behind
         p_nearby, t_nearby, ped_nearby, cow_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
 
         # 360° Circular Disc Sensor update
@@ -117,6 +441,8 @@ class AutonomousCar:
         if self.replan_timer >= PLANNER_REPLAN_INTERVAL or not self.path:
             self.replan_timer = 0.0
             self.path = planner.plan_path(self.x, self.y, self.speed, p_nearby, t_nearby, ped_nearby, cow_nearby)
+            self.long_path = getattr(planner, 'last_long_path', [])
+            self.short_path = getattr(planner, 'last_short_path', [])
 
         # 2. Pure Pursuit Path Tracking with Priority Safe-Distance Algorithm
         # Lookahead distance scales smoothly to ensure gentle highway cornering
@@ -136,37 +462,16 @@ class AutonomousCar:
 
         # Base A* pursuit steer
         angle_diff = (desired_heading - self.heading + math.pi) % (2 * math.pi) - math.pi
-        astar_steer = angle_diff * 1.55
+        target_steer = max(-PLAYER_STEER_SPEED, min(PLAYER_STEER_SPEED, angle_diff * 1.8 + self.sensor.repulsion_steer))
+        self.steering_angle += (target_steer - self.steering_angle) * min(1.0, 3.8 * dt)
 
-        # Alongside traffic safety check: prevent lateral sideswipes during maneuvers
-        for t in t_nearby:
-            t_dy = self.y - t.y
-            t_dx = t.x - self.x
-            if abs(t_dy) < (self.length + t.length) * 0.5 + 10.0:
-                if abs(t_dx) < (self.width + t.width) * 0.5 + 18.0:
-                    if t_dx > 0 and astar_steer > 0:
-                        astar_steer = min(0.0, astar_steer)
-                    elif t_dx < 0 and astar_steer < 0:
-                        astar_steer = max(0.0, astar_steer)
-
-        # 🛡️ RED-ZONE SAFE DISTANCE OVERRIDE (HIGHER PRIORITY THAN REACHING A* PATH):
-        # Keep other vehicles out of the red zone mostly. If an NPC vehicle enters the red zone,
-        # slowly maneuver past it based on predicted trajectory!
-        if self.sensor.vehicle_in_red:
-            priority_weight = min(1.0, 0.45 + self.sensor.red_zone_urgency * 0.55)
-            maneuver_steer = self.sensor.red_zone_maneuver_steer
-            blended_steer = (1.0 - priority_weight) * astar_steer + priority_weight * maneuver_steer
-            target_steer = max(-PLAYER_STEER_SPEED, min(PLAYER_STEER_SPEED, blended_steer))
-            self.add_thought(f"RED ZONE: {self.sensor.closest_vehicle_threat} {self.sensor.predicted_other_dir}; maneuvering {self.sensor.predicted_maneuver_side} at crawl speed.", "DECISION")
+        # Vehicle kinematics constraint: No in-place turning when stationary!
+        # Heading rate scales with forward linear velocity. When speed <= 1.0 px/s, heading cannot turn.
+        if self.speed > 1.0:
+            speed_factor = min(1.0, self.speed / 40.0)
+            self.heading += self.steering_angle * speed_factor * dt
         else:
-            target_steer = max(-PLAYER_STEER_SPEED, min(PLAYER_STEER_SPEED, astar_steer))
-
-        # Smooth steering rate limiter (prevents sharp cuts, ensures fluid highway steering)
-        max_steer_rate = 2.4 # rad/s^2
-        steer_delta = target_steer - self.steering_angle
-        max_delta = max_steer_rate * dt
-        self.steering_angle += max(-max_delta, min(max_delta, steer_delta))
-        self.heading += self.steering_angle * dt
+            self.steering_angle = 0.0
 
         # Realistic Steering Constraint:
         # Strictly clamp maximum off-axis heading relative to the road tangent
@@ -179,14 +484,74 @@ class AutonomousCar:
             self.heading = road_tangent - MAX_STEER_DEVIATION
             self.steering_angle = max(0.0, self.steering_angle)
 
-        # 3. Auto Speed Mode Adaptation & Deliberation
+        # 3. Traffic Density Sensing & Adaptive Speed Allowance
         rw = road.get_road_width(self.y)
         active_threat = "CLEAR"
 
+        # Sense surrounding and forward traffic around the vehicle
+        traffic_ahead_count = 0
+        traffic_surround_count = 0
+        traffic_congestion_score = 0.0
+
+        for t in t_nearby:
+            t_dy = self.y - t.y   # positive = ahead, negative = behind
+            t_dx = abs(self.x - t.x)
+            t_dist = math.hypot(t_dx, t_dy)
+            if -100.0 <= t_dy <= 340.0 and t_dx <= rw * 0.65:
+                traffic_surround_count += 1
+                if 0.0 < t_dy <= 300.0:
+                    traffic_ahead_count += 1
+                if t_dist < 280.0:
+                    traffic_congestion_score += max(0.0, 1.0 - (t_dist / 280.0))
+
+        # Classify Traffic Density Regime:
+        # - HEAVY: Dense traffic -> Low speed priority (defensive headway 95 - 120 px/s)
+        # - MODERATE: Medium traffic -> Paced speed (145 - 180 px/s)
+        # - LIGHT: Sparse traffic -> Standard cruise (185 - 230 px/s)
+        # - EMPTY: Empty road -> Higher speed allowance (up to PLAYER_MAX_SPEED 290 px/s / ~81 km/h)
+        if traffic_congestion_score >= 1.6 or traffic_surround_count >= 3 or traffic_ahead_count >= 2:
+            traffic_regime = "HEAVY"
+            traffic_speed_allowance = 115.0  # ~32 km/h (Low speed priority)
+            traffic_reason = "HEAVY TRAFFIC (LOW SPEED PRIORITY)"
+        elif traffic_congestion_score >= 0.7 or traffic_surround_count >= 2:
+            traffic_regime = "MODERATE"
+            traffic_speed_allowance = 175.0  # ~49 km/h (Paced speed)
+            traffic_reason = "MODERATE TRAFFIC (PACED SPEED)"
+        elif traffic_congestion_score > 0.15 or traffic_surround_count == 1:
+            traffic_regime = "LIGHT"
+            traffic_speed_allowance = 230.0  # ~64 km/h (Cruising)
+            traffic_reason = "LIGHT TRAFFIC (FLOWING)"
+        else:
+            traffic_regime = "EMPTY"
+            traffic_speed_allowance = PLAYER_MAX_SPEED  # 290 px/s (~81 km/h Higher speed allowance!)
+            traffic_reason = "EMPTY ROAD (HIGH SPEED ALLOWANCE)"
+
         if self.auto_mode:
             width_ratio = max(0.0, min(1.0, (rw - 210.0) / 190.0))
-            base_auto_speed = PLAYER_MIN_SPEED + 80.0 + width_ratio * 125.0
-            reason = "CRUISING (WIDE ROAD)" if width_ratio > 0.55 else "CHOKE POINT (NARROW)"
+            if traffic_regime == "EMPTY":
+                base_auto_speed = 220.0 + width_ratio * 70.0  # 220 - 290 px/s (~62 - 81 km/h)
+                reason = traffic_reason
+            elif traffic_regime == "HEAVY":
+                base_auto_speed = min(traffic_speed_allowance, 95.0 + width_ratio * 25.0)  # 95 - 120 px/s (~27 - 34 km/h)
+                reason = traffic_reason
+                self.add_thought("Dense traffic detected; prioritizing low speed and defensive headway.", "DECISION")
+            elif traffic_regime == "MODERATE":
+                base_auto_speed = min(traffic_speed_allowance, 145.0 + width_ratio * 35.0)
+                reason = traffic_reason
+            else: # LIGHT
+                base_auto_speed = min(traffic_speed_allowance, 185.0 + width_ratio * 45.0)
+                reason = traffic_reason
+
+            # Crowded area high speed penalty (penalize high speeds in crowded areas by up to 20%)
+            crowded_cluster = [t for t in t_nearby if abs(t.y - self.y) < CROWDED_NEIGHBOR_RADIUS]
+            if len(crowded_cluster) >= 2 and base_auto_speed > 90.0:
+                crowd_ratio = min(1.0, (len(crowded_cluster) - 1) / 2.0)
+                speed_ratio = min(1.0, max(0.0, (self.speed - 70.0) / 105.0))
+                crowd_speed_penalty = CROWDED_AREA_SPEED_PENALTY_MAX * crowd_ratio * speed_ratio
+                base_auto_speed *= (1.0 - crowd_speed_penalty)
+                if crowd_speed_penalty > 0.04:
+                    reason = f"CROWD SPEED PENALTY (-{int(crowd_speed_penalty * 100)}%)"
+                    self.add_thought(f"High speed in crowded area penalized by {int(crowd_speed_penalty * 100)}%; easing throttle.", "DECISION")
 
             # Road bottleneck cognition
             if rw < 240:
@@ -226,6 +591,20 @@ class AutonomousCar:
                     active_threat = f"{t.vtype}_AHEAD"
                     self.add_thought(f"Behind slow {t.vtype} ({int(t.speed*0.28)} km/h). Seeking overtake lane.", "DECISION")
                     break
+
+            # Trailing traffic rear-end hazard check
+            for t in t_nearby:
+                t_rear_dy = t.y - self.y  # positive if t is behind us
+                if 0 < t_rear_dy < 180 and t.speed > self.speed + 15.0:
+                    t_dx = abs(t.x - self.x)
+                    if t_dx < 38.0:
+                        # Direct tailgater in our lane: pace up if road is clear ahead
+                        if self.target_speed < t.speed * 0.95 and reason == traffic_reason:
+                            base_auto_speed = min(base_auto_speed + 25.0, t.speed)
+                            self.add_thought(f"Rear traffic closing fast ({int(t.speed*0.28)} km/h); pacing up safely.", "DECISION")
+                    elif t_dx < 85.0 and abs(self.target_waypoint[0] - t.x) < 36.0:
+                        # Approaching in the lane we are steering toward
+                        self.add_thought(f"TRAFFIC VECTOR: {t.vtype} approaching at {int(t.speed*0.28)} km/h in target lane; deferring cut.", "WARN")
 
             # Cow hazard cognition (predict behavior and adjust trajectory early from far off)
             for cow in cow_nearby:
@@ -322,32 +701,54 @@ class AutonomousCar:
                         effective_desired = min(effective_desired, 45.0)
                 break
 
-        # Pothole crossing: Never stop completely for potholes; cross at lower cautious crawl speed
-        for p in p_nearby:
-            p_dy = self.y - p.y
-            p_dx = abs(self.x - p.x)
-            if 0 < p_dy < 85 and p_dx < (p.effective_radius + self.width * 0.40):
-                cautious_spd = 58.0 # ~16-18 km/h gentle crawl
-                if effective_desired > cautious_spd:
-                    effective_desired = cautious_spd
+        # Circular Disc Sensor Threat Assessment & Inter-Vehicle Deadlock Negotiation:
+        # Analyzes obstacle location, threat type, and performs principled deadlock resolution.
+        if self.sensor.critical_breached and self.sensor.forward_hazard_present:
+            info = self.sensor.forward_blocker_info
+            threat_type = info['type'] if info else "OBSTACLE"
+            sec = info['sector'] if info else "FRONT"
+            obj_ref = info.get('ref') if info else None
+
+            if threat_type.startswith("TRAFFIC_") and obj_ref is not None:
+                # Inter-vehicle deadlock negotiation
+                if self.speed < 25.0 and getattr(obj_ref, 'speed', 0.0) < 25.0:
+                    has_priority, reason = negotiate_deadlock_priority(self, obj_ref, road)
+                    if has_priority:
+                        effective_desired = 26.0  # Creep forward out of deadlock
+                        if self.auto_mode:
+                            self.auto_speed_reason = f"DEADLOCK: {reason[:16]}"
+                        self.add_thought(f"DEADLOCK RESOLUTION: Priority acquired ({reason}); creeping forward to clear jam.", "DECISION")
+                    else:
+                        effective_desired = 0.0  # Yield to smaller/higher priority vehicle
+                        if self.auto_mode:
+                            self.auto_speed_reason = f"YIELD: {reason[:16]}"
+                        self.add_thought(f"DEADLOCK RESOLUTION: Yielding ({reason}); holding position for clearance.", "INFO")
+                else:
+                    effective_desired = 0.0
                     if self.auto_mode:
-                        self.auto_speed_reason = "CROSSING POTHOLE (SLOW)"
-                    self.add_thought("Approaching unavoidable pothole; crossing at reduced crawl speed.", "DECISION")
-                break
-
-        # Red-Zone Slow Maneuver Speed (slowly maneuver past NPC vehicle in red zone)
-        if self.sensor.vehicle_in_red and self.sensor.red_zone_slow_speed < 900.0:
-            effective_desired = min(effective_desired, self.sensor.red_zone_slow_speed)
-            if self.auto_mode:
-                self.auto_speed_reason = f"RED ZONE MANEUVER ({self.sensor.closest_vehicle_threat})"
-
-        # Imminent touch collision override
-        if self.sensor.critical_breached and getattr(self.sensor, 'red_zone_slow_speed', 999.0) == 0.0:
-            breach_threat = next((self.sensor.sector_threats[s] for s in self.sensor.SECTORS if self.sensor.sector_distances[s] < self.sensor.r_inner and self.sensor.sector_threats[s] not in ['CLEAR', 'POTHOLE', 'ROAD_EDGE']), 'OBSTACLE')
-            effective_desired = 0.0
-            if self.auto_mode:
-                self.auto_speed_reason = f"SENSOR STOP ({breach_threat})"
-            self.add_thought(f"SENSOR: Imminent proximity breach ({breach_threat})! Holding stop for maneuver clearance.", "ALERT")
+                        self.auto_speed_reason = f"SENSOR STOP ({threat_type} {sec})"
+                    self.add_thought(f"SENSOR DISC: Forward path blocked by {threat_type} in {sec}! Emergency stop.", "ALERT")
+            else:
+                effective_desired = 0.0
+                if self.auto_mode:
+                    self.auto_speed_reason = f"SENSOR STOP ({threat_type} {sec})"
+                self.add_thought(f"SENSOR DISC: Forward path blocked by {threat_type} in {sec}! Emergency stop.", "ALERT")
+        elif self.sensor.rear_hazard_present:
+            # Obstacle is BEHIND us in the rear red zone.
+            # We must NOT stop, as stopping creates a deadlock or invites a rear-end collision!
+            info = self.sensor.rear_blocker_info
+            threat_type = info['type'] if info else "TRAFFIC"
+            # If path ahead is clear (effective_desired > 0), maintain forward cruising momentum away from tailgater
+            if effective_desired > 0.0:
+                effective_desired = max(effective_desired, 95.0)
+                if self.auto_mode and not self.auto_speed_reason.startswith("FOLLOWING"):
+                    self.auto_speed_reason = f"EVADING REAR {threat_type}"
+                self.add_thought(f"SENSOR DISC: {threat_type} trailing in rear red zone; holding forward motion to open gap.", "DECISION")
+        elif self.sensor.flank_hazard_present:
+            # Flank obstacle alongside; lateral repulsion steering already provides separation
+            if effective_desired > 75.0:
+                effective_desired = min(effective_desired, 75.0)
+            self.add_thought("SENSOR DISC: Flank obstacle alongside; maintaining lateral clearance.", "INFO")
 
         if self.honk_timer > 0:
             self.honk_timer -= dt
@@ -356,7 +757,10 @@ class AutonomousCar:
             self.speed = max(effective_desired, self.speed - PLAYER_DECEL * dt)
             self.is_braking = True
         else:
-            self.speed = min(effective_desired, self.speed + PLAYER_ACCEL * dt)
+            # Acceleration from rest reduced by 20% to prevent rapid launch
+            rest_scale = REST_ACCEL_FACTOR if self.speed < 40.0 else (REST_ACCEL_FACTOR + (1.0 - REST_ACCEL_FACTOR) * min(1.0, (self.speed - 40.0) / 40.0))
+            effective_accel = PLAYER_ACCEL * rest_scale
+            self.speed = min(effective_desired, self.speed + effective_accel * dt)
             self.is_braking = False
 
         self.speed = max(0.0, self.speed) # Fully stop capable
@@ -383,9 +787,18 @@ class AutonomousCar:
             if not getattr(p, 'hit', False) and abs(self.y - p.y) < 25 and abs(self.x - p.x) < 25:
                 if p.contains_point(self.x, self.y):
                     p.hit = True
-                    self.bump_shake = 1.0
+                    # Speed-scaled suspension impact: 40% harsher at high speed, 10% lower when crawling
+                    if self.speed > 180.0:
+                        self.bump_shake = 1.40  # +40% high speed penalty impact
+                        self.speed = max(0.0, self.speed - 35.0)  # Momentum loss from rim strike
+                        self.add_thought("High-speed pothole impact! Severe suspension shock (+40% penalty).", "ALERT")
+                    elif self.speed <= 80.0:
+                        self.bump_shake = 0.90  # 10% lower penalty for crawling
+                        self.add_thought("Traversed pothole crater at reduced crawl speed (-10% penalty).", "INFO")
+                    else:
+                        self.bump_shake = 1.0
+                        self.add_thought("Hit pothole crater! Suspension absorbing shock.", "WARN")
                     self.pothole_bumps += 1
-                    self.add_thought("Hit pothole crater! Suspension absorbing shock.", "WARN")
                     break
 
         # Dynamic Traffic
@@ -393,7 +806,9 @@ class AutonomousCar:
             if not getattr(t, 'hit', False) and abs(self.y - t.y) < (self.length + t.length) / 2 and abs(self.x - t.x) < (self.width + t.width) / 2:
                 t.hit = True
                 self.collisions += 1
-                self.add_thought(f"Impact with {t.vtype}! Recalibrating spatial margin.", "ALERT")
+                self.bump_shake = 1.60  # +60% collision shock penalty impact
+                self.speed = max(0.0, self.speed - 56.0)  # Severe momentum loss (+60% increased speed penalty)
+                self.add_thought(f"Severe collision with {t.vtype}! (+60% collision penalty impact applied).", "ALERT")
 
         # Pedestrians
         for ped in obstacles.pedestrians:
@@ -422,6 +837,8 @@ class AutonomousCar:
         self.observations["sensor_threat"] = self.sensor.nearest_threat
         self.observations["sensor_status"] = "ALERT" if self.sensor.critical_breached else ("CAUTION" if self.sensor.nearest_dist < self.sensor.r_mid else "CLEAR")
         self.observations["critical_breached"] = self.sensor.critical_breached
+        self.observations["traffic_regime"] = traffic_regime
+        self.observations["traffic_count"] = traffic_surround_count
 
     def _find_pursuit_target(self, lookahead: float) -> Tuple[float, float]:
         """Smoothly interpolates a lookahead target point along the A* trajectory."""
@@ -444,7 +861,7 @@ class AutonomousCar:
 
         return self.path[-1]
 
-    def draw(self, surface: pygame.Surface, camera_y: float, show_radar: bool = True, show_hitbox: bool = False):
+    def draw(self, surface: pygame.Surface, camera_y: float, show_radar: bool = True):
         sy = self.y - camera_y
 
         shake_x = 0
@@ -456,8 +873,9 @@ class AutonomousCar:
         draw_x = self.x + shake_x
         draw_y = sy + shake_y
 
-        # Draw 360° Circular Disc Sensor Field & Hitbox on Road
-        self.sensor.draw_world(surface, self, camera_y, show_radar=show_radar, show_hitbox=show_hitbox)
+        # Draw 360° Circular Disc Sensor Field on Road if enabled
+        if show_radar:
+            self.sensor.draw_world(surface, self, camera_y)
 
         # Headlight beam projection
         beam_length = 190

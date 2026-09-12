@@ -3,21 +3,29 @@ Main entry point for Indian Highway Autonomous Driving Simulation with A* Pathfi
 Pure Pygame implementation with zero external dependencies or backend.
 """
 
-import sys
-import os
 import math
+import os
 import random
+import sys
+
 import pygame
 
+from car import AutonomousCar
 from config import (
-    SCREEN_WIDTH, SCREEN_HEIGHT, FPS, TITLE,
-    COLOR_TEXT, COLOR_HUD_BG, COLOR_PATH_LINE, COLOR_PATH_WAYPOINT,
-    COLOR_GRID_EXPLORED, COLOR_GRID_OBSTACLE
+    COLOR_GRID_EXPLORED,
+    COLOR_GRID_OBSTACLE,
+    COLOR_HUD_BG,
+    COLOR_PATH_LINE,
+    COLOR_PATH_WAYPOINT,
+    COLOR_TEXT,
+    FPS,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
+    TITLE,
 )
-from road import InfiniteRoad
 from obstacles import ObstacleManager
 from planner import AStarPlanner
-from car import AutonomousCar
+from road import InfiniteRoad
 
 
 class IndianHighwaySimulation:
@@ -37,9 +45,12 @@ class IndianHighwaySimulation:
         # Simulation state
         self.paused = False
         self.show_debug = True
+        self.show_radar = True  # Toggleable 360° Circular Disc Radar on road
+        self.show_traffic_vectors = (
+            True  # Toggleable NPC Direction Vectors in debug view
+        )
         self.show_dashboard = True  # Toggleable AI Thoughts & Decision Dashboard
-        self.show_hitboxes_and_radar = True # Toggleable Hitboxes and Radar field
-        self.dragging_slider = False # Mouse drag state for traffic density slider
+        self.dragging_slider = False  # Mouse drag state for traffic density slider
         self.roadside_props = []
 
         self.reset()
@@ -69,15 +80,23 @@ class IndianHighwaySimulation:
         else:
             px = right + random.uniform(50, 130)
 
-        ptype = random.choices(['BUSH', 'TREE', 'MILESTONE'], weights=[0.55, 0.35, 0.10])[0]
+        ptype = random.choices(
+            ["BUSH", "TREE", "MILESTONE"], weights=[0.55, 0.35, 0.10]
+        )[0]
         size = random.uniform(14, 28)
-        self.roadside_props.append({
-            'x': px,
-            'y': wy,
-            'type': ptype,
-            'size': size,
-            'color': (random.randint(28, 45), random.randint(65, 95), random.randint(25, 40))
-        })
+        self.roadside_props.append(
+            {
+                "x": px,
+                "y": wy,
+                "type": ptype,
+                "size": size,
+                "color": (
+                    random.randint(28, 45),
+                    random.randint(65, 95),
+                    random.randint(25, 40),
+                ),
+            }
+        )
 
     def handle_events(self) -> bool:
         """Processes user input and interactive slider events."""
@@ -96,11 +115,18 @@ class IndianHighwaySimulation:
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1 and self.show_dashboard:
                     mx, my = event.pos
-                    click_rect = pygame.Rect(slider_track_x - 10, slider_track_y - 12, slider_track_w + 20, 32)
+                    click_rect = pygame.Rect(
+                        slider_track_x - 10,
+                        slider_track_y - 12,
+                        slider_track_w + 20,
+                        32,
+                    )
                     if click_rect.collidepoint(mx, my):
                         self.dragging_slider = True
                         rel = (mx - slider_track_x) / float(slider_track_w)
-                        self.obstacles.traffic_density = max(0.1, min(1.0, rel))
+                        self.obstacles.set_traffic_density(
+                            max(0.1, min(1.0, rel)), self.car.y
+                        )
 
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
@@ -110,7 +136,9 @@ class IndianHighwaySimulation:
                 if self.dragging_slider and self.show_dashboard:
                     mx, my = event.pos
                     rel = (mx - slider_track_x) / float(slider_track_w)
-                    self.obstacles.traffic_density = max(0.1, min(1.0, rel))
+                    self.obstacles.set_traffic_density(
+                        max(0.1, min(1.0, rel)), self.car.y
+                    )
 
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
@@ -119,16 +147,20 @@ class IndianHighwaySimulation:
                     self.paused = not self.paused
                 elif event.key == pygame.K_d:
                     self.show_debug = not self.show_debug
-                elif event.key == pygame.K_h:
-                    self.show_hitboxes_and_radar = not self.show_hitboxes_and_radar
+                elif event.key in (pygame.K_h, pygame.K_s):
+                    self.show_radar = not self.show_radar
+                elif event.key == pygame.K_v:
+                    self.show_traffic_vectors = not self.show_traffic_vectors
                 elif event.key in (pygame.K_TAB, pygame.K_t):
                     self.show_dashboard = not self.show_dashboard
                 elif event.key == pygame.K_a:
                     self.car.auto_mode = not self.car.auto_mode
                 elif event.key == pygame.K_LEFTBRACKET:
-                    self.obstacles.traffic_density = max(0.1, round(self.obstacles.traffic_density - 0.1, 2))
+                    new_d = max(0.1, round(self.obstacles.traffic_density - 0.1, 2))
+                    self.obstacles.set_traffic_density(new_d, self.car.y)
                 elif event.key == pygame.K_RIGHTBRACKET:
-                    self.obstacles.traffic_density = min(1.0, round(self.obstacles.traffic_density + 0.1, 2))
+                    new_d = min(1.0, round(self.obstacles.traffic_density + 0.1, 2))
+                    self.obstacles.set_traffic_density(new_d, self.car.y)
                 elif event.key == pygame.K_r:
                     self.reset()
                 elif event.key == pygame.K_UP:
@@ -155,35 +187,66 @@ class IndianHighwaySimulation:
         self.camera_y += (target_cam_y - self.camera_y) * min(1.0, 8.0 * dt)
 
         # 4. Roadside Props update
-        min_prop_y = min(p['y'] for p in self.roadside_props) if self.roadside_props else self.camera_y
+        min_prop_y = (
+            min(p["y"] for p in self.roadside_props)
+            if self.roadside_props
+            else self.camera_y
+        )
         if min_prop_y > self.car.y - 1200:
             for new_y in range(int(min_prop_y) - 140, int(self.car.y - 1400), -140):
                 self._spawn_roadside_prop(new_y)
 
-        self.roadside_props = [p for p in self.roadside_props if p['y'] < self.camera_y + SCREEN_HEIGHT + 200]
+        self.roadside_props = [
+            p
+            for p in self.roadside_props
+            if p["y"] < self.camera_y + SCREEN_HEIGHT + 200
+        ]
 
     def draw_roadside_props(self):
         for prop in self.roadside_props:
-            sy = prop['y'] - self.camera_y
+            sy = prop["y"] - self.camera_y
             if -40 <= sy <= SCREEN_HEIGHT + 40:
-                px = int(prop['x'])
+                px = int(prop["x"])
                 sy = int(sy)
-                ptype = prop['type']
-                size = int(prop['size'])
+                ptype = prop["type"]
+                size = int(prop["size"])
 
-                if ptype == 'MILESTONE':
+                if ptype == "MILESTONE":
                     mw, mh = 14, 22
                     base_rect = pygame.Rect(px - mw // 2, sy - mh // 2, mw, mh)
-                    pygame.draw.rect(self.screen, (240, 240, 235), base_rect, border_top_left_radius=7, border_top_right_radius=7)
+                    pygame.draw.rect(
+                        self.screen,
+                        (240, 240, 235),
+                        base_rect,
+                        border_top_left_radius=7,
+                        border_top_right_radius=7,
+                    )
                     top_rect = pygame.Rect(px - mw // 2, sy - mh // 2, mw, 8)
-                    pygame.draw.rect(self.screen, (240, 190, 20), top_rect, border_top_left_radius=7, border_top_right_radius=7)
-                    pygame.draw.rect(self.screen, (50, 50, 50), base_rect, width=1, border_top_left_radius=7, border_top_right_radius=7)
-                elif ptype == 'TREE':
+                    pygame.draw.rect(
+                        self.screen,
+                        (240, 190, 20),
+                        top_rect,
+                        border_top_left_radius=7,
+                        border_top_right_radius=7,
+                    )
+                    pygame.draw.rect(
+                        self.screen,
+                        (50, 50, 50),
+                        base_rect,
+                        width=1,
+                        border_top_left_radius=7,
+                        border_top_right_radius=7,
+                    )
+                elif ptype == "TREE":
                     pygame.draw.circle(self.screen, (35, 60, 25), (px, sy), size)
-                    pygame.draw.circle(self.screen, prop['color'], (px - 2, sy - 2), int(size * 0.85))
-                else: # BUSH
-                    pygame.draw.circle(self.screen, prop['color'], (px, sy), size)
-                    pygame.draw.circle(self.screen, (40, 75, 30), (px + 3, sy - 2), int(size * 0.6))
+                    pygame.draw.circle(
+                        self.screen, prop["color"], (px - 2, sy - 2), int(size * 0.85)
+                    )
+                else:  # BUSH
+                    pygame.draw.circle(self.screen, prop["color"], (px, sy), size)
+                    pygame.draw.circle(
+                        self.screen, (40, 75, 30), (px + 3, sy - 2), int(size * 0.6)
+                    )
 
     def draw_debug_overlay(self):
         if not self.show_debug:
@@ -194,14 +257,41 @@ class IndianHighwaySimulation:
         for ex, ey in self.planner.last_explored_cells:
             esy = ey - self.camera_y
             if 0 <= esy <= SCREEN_HEIGHT:
-                pygame.draw.circle(debug_surf, COLOR_GRID_EXPLORED, (int(ex), int(esy)), 3)
+                pygame.draw.circle(
+                    debug_surf, COLOR_GRID_EXPLORED, (int(ex), int(esy)), 3
+                )
+
+        # Draw virtual lane guidance markings in debug mode
+        step_y = 22
+        curr_y = float(self.camera_y)
+        end_y = float(self.camera_y + SCREEN_HEIGHT)
+        while curr_y <= end_y:
+            lanes, _ = self.road.get_virtual_lanes(curr_y)
+            esy = int(curr_y - self.camera_y)
+            for lx in lanes:
+                pygame.draw.circle(debug_surf, (0, 240, 180, 55), (int(lx), esy), 2)
+            curr_y += step_y
 
         cell = self.planner.cell_size
         for ox, oy in self.planner.last_obstacle_cells:
             osy = oy - self.camera_y
             if 0 <= osy <= SCREEN_HEIGHT:
-                pygame.draw.rect(debug_surf, COLOR_GRID_OBSTACLE, (int(ox - cell/2), int(osy - cell/2), cell, cell))
+                pygame.draw.rect(
+                    debug_surf,
+                    COLOR_GRID_OBSTACLE,
+                    (int(ox - cell / 2), int(osy - cell / 2), cell, cell),
+                )
 
+        # Render Strategic Long-Range Corridor (Amber / Gold)
+        long_path = getattr(self.planner, "last_long_path", [])
+        if len(long_path) >= 2:
+            long_pts = [(int(px), int(py - self.camera_y)) for px, py in long_path]
+            pygame.draw.lines(debug_surf, (255, 185, 45, 95), False, long_pts, 4)
+            for idx, pt in enumerate(long_pts):
+                if idx % 4 == 0 or idx == len(long_pts) - 1:
+                    pygame.draw.circle(debug_surf, (255, 205, 75, 160), pt, 3)
+
+        # Render Active Spliced Trajectory (Vivid Cyan & White Core)
         path = self.car.path
         if len(path) >= 2:
             screen_pts = [(int(px), int(py - self.camera_y)) for px, py in path]
@@ -215,19 +305,37 @@ class IndianHighwaySimulation:
         tx, ty = self.car.target_waypoint
         tsy = ty - self.camera_y
         if 0 <= tsy <= SCREEN_HEIGHT:
-            pygame.draw.circle(debug_surf, (255, 80, 80), (int(tx), int(tsy)), 6, width=2)
-            pygame.draw.line(debug_surf, (255, 100, 100, 160),
-                             (int(self.car.x), int(self.car.y - self.camera_y)),
-                             (int(tx), int(tsy)), 1)
+            pygame.draw.circle(
+                debug_surf, (255, 80, 80), (int(tx), int(tsy)), 6, width=2
+            )
+            pygame.draw.line(
+                debug_surf,
+                (255, 100, 100, 160),
+                (int(self.car.x), int(self.car.y - self.camera_y)),
+                (int(tx), int(tsy)),
+                1,
+            )
+
+        # Render Moving NPC Direction Vectors & Predicted Trajectory Corridors
+        if self.show_traffic_vectors:
+            self.obstacles.draw_traffic_vectors(debug_surf, self.camera_y)
 
         self.screen.blit(debug_surf, (0, 0))
 
     def draw_hud(self):
         """Top-left Telemetry Card."""
-        hud_w, hud_h = 390, 230
+        hud_w, hud_h = 450, 272
         hud_surf = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
-        pygame.draw.rect(hud_surf, (14, 18, 24, 220), (0, 0, hud_w, hud_h), border_radius=10)
-        pygame.draw.rect(hud_surf, (0, 180, 230, 120), (0, 0, hud_w, hud_h), width=2, border_radius=10)
+        pygame.draw.rect(
+            hud_surf, (14, 18, 24, 220), (0, 0, hud_w, hud_h), border_radius=10
+        )
+        pygame.draw.rect(
+            hud_surf,
+            (0, 180, 230, 120),
+            (0, 0, hud_w, hud_h),
+            width=2,
+            border_radius=10,
+        )
 
         speed_kmh = int(self.car.speed * 0.28)
         target_kmh = int(self.car.target_speed * 0.28)
@@ -236,23 +344,72 @@ class IndianHighwaySimulation:
         rw = int(self.road.get_road_width(self.car.y))
         rw_status = " (Bottleneck)" if rw < 235 else " (Wide)" if rw > 370 else ""
 
-        auto_str = f"AUTO: {self.car.auto_speed_reason}" if self.car.auto_mode else "MANUAL SPEED"
+        auto_str = (
+            f"AUTO: {self.car.auto_speed_reason}"
+            if self.car.auto_mode
+            else "MANUAL SPEED"
+        )
         auto_col = (80, 245, 160) if self.car.auto_mode else (255, 180, 80)
 
+        short_nodes = (
+            getattr(self.planner, "short_range", None).nodes_explored_count
+            if hasattr(self.planner, "short_range")
+            else 0
+        )
+        long_nodes = (
+            getattr(self.planner, "long_range", None).nodes_explored_count
+            if hasattr(self.planner, "long_range")
+            else 0
+        )
+
         lines = [
-            ("AUTONOMOUS NAVIGATOR (A*)", (0, 220, 255), self.font_large),
-            (f"Speed: {speed_kmh} km/h (Target: {target_kmh})  |  FPS: {fps}", (255, 255, 255), self.font_medium),
+            ("AUTONOMOUS DUAL A* NAVIGATOR", (0, 220, 255), self.font_large),
+            (
+                f"Speed: {speed_kmh} km/h (Target: {target_kmh})  |  FPS: {fps}",
+                (255, 255, 255),
+                self.font_medium,
+            ),
             (f"Mode [A]: {auto_str}", auto_col, self.font_medium),
-            (f"Road Width: {rw} px{rw_status}  |  Dist: {dist_m} m", (210, 225, 235), self.font_medium),
-            (f"A* Nodes Explored: {self.planner.nodes_explored_count} cells", (255, 220, 80), self.font_medium),
-            (f"Potholes: {self.obstacles.potholes_avoided} dodged | Hits: {self.car.pothole_bumps}",
-             (120, 255, 140) if self.car.pothole_bumps == 0 else (255, 160, 80), self.font_medium),
-            (f"Traffic: {self.obstacles.traffic_overtaken} overtaken | Hits: {self.car.collisions}",
-             (160, 220, 255) if self.car.collisions == 0 else (255, 120, 100), self.font_medium),
-            (f"Pedestrians: {self.obstacles.pedestrians_avoided} dodged | Hits: {self.car.pedestrian_bumps}",
-             (255, 210, 140) if self.car.pedestrian_bumps == 0 else (255, 80, 80), self.font_medium),
-            (f"Cows: {self.obstacles.cows_navigated} navigated | Hits: {self.car.cow_bumps}",
-             (255, 235, 140) if self.car.cow_bumps == 0 else (255, 80, 80), self.font_medium),
+            (
+                f"Road Width: {rw} px{rw_status}  |  Dist: {dist_m} m",
+                (210, 225, 235),
+                self.font_medium,
+            ),
+            (
+                f"Debug [D]: {'ON' if self.show_debug else 'OFF'}  |  Radar [H]: {'ON' if self.show_radar else 'OFF'}  |  Vectors [V]: {'ON' if self.show_traffic_vectors else 'OFF'}",
+                (0, 235, 255),
+                self.font_medium,
+            ),
+            (
+                f"Dual A*: {self.planner.nodes_explored_count} nodes ({short_nodes} local | {long_nodes} global)",
+                (255, 220, 80),
+                self.font_medium,
+            ),
+            (
+                f"Signals: {self.car.total_signals} ({self.car.total_decisions} Dec + {self.car.total_warnings} Warn + {self.car.total_other_signals} Other)",
+                (240, 190, 255),
+                self.font_medium,
+            ),
+            (
+                f"Potholes: {self.obstacles.potholes_avoided} dodged | Hits: {self.car.pothole_bumps}",
+                (120, 255, 140) if self.car.pothole_bumps == 0 else (255, 160, 80),
+                self.font_medium,
+            ),
+            (
+                f"Traffic: {self.obstacles.traffic_overtaken} overtaken ({len(self.obstacles.traffic)} on road) | Hits: {self.car.collisions}",
+                (160, 220, 255) if self.car.collisions == 0 else (255, 120, 100),
+                self.font_medium,
+            ),
+            (
+                f"Pedestrians: {self.obstacles.pedestrians_avoided} dodged | Hits: {self.car.pedestrian_bumps}",
+                (255, 210, 140) if self.car.pedestrian_bumps == 0 else (255, 80, 80),
+                self.font_medium,
+            ),
+            (
+                f"Cows: {self.obstacles.cows_navigated} navigated | Hits: {self.car.cow_bumps}",
+                (255, 235, 140) if self.car.cow_bumps == 0 else (255, 80, 80),
+                self.font_medium,
+            ),
         ]
 
         y_offset = 8
@@ -264,17 +421,22 @@ class IndianHighwaySimulation:
         self.screen.blit(hud_surf, (16, 16))
 
         # Bottom Controls Banner
-        ctrl_w, ctrl_h = 860, 34
+        ctrl_w, ctrl_h = 790, 34
         ctrl_surf = pygame.Surface((ctrl_w, ctrl_h), pygame.SRCALPHA)
-        pygame.draw.rect(ctrl_surf, (15, 20, 26, 215), (0, 0, ctrl_w, ctrl_h), border_radius=6)
-        ctrl_text = "[H] Hitboxes & Radar  |  [TAB] Dashboard  |  [ [ / ] ] Density  |  [A] Auto  |  [D] A* Debug  |  [SPACE] Pause  |  [R] Reset"
+        pygame.draw.rect(
+            ctrl_surf, (15, 20, 26, 215), (0, 0, ctrl_w, ctrl_h), border_radius=6
+        )
+        ctrl_text = "[TAB] Dashboard  |  [D] A* Debug  |  [H] Radar  |  [A] Auto Speed  |  [ [ / ] ] Density  |  [SPACE] Pause  |  [R] Reset"
         t_ctrl = self.font_small.render(ctrl_text, True, (210, 225, 240))
         ctrl_surf.blit(t_ctrl, (14, 10))
-        self.screen.blit(ctrl_surf, (20, SCREEN_HEIGHT - 44))
+        ctrl_x = max(20, int(self.road.base_cx - ctrl_w // 2))
+        self.screen.blit(ctrl_surf, (ctrl_x, SCREEN_HEIGHT - 44))
 
         if self.paused:
-            pause_surf = self.font_large.render("-- SIMULATION PAUSED --", True, (255, 220, 40))
-            px = 440 - pause_surf.get_width() // 2
+            pause_surf = self.font_large.render(
+                "-- SIMULATION PAUSED --", True, (255, 220, 40)
+            )
+            px = int(self.road.base_cx - pause_surf.get_width() // 2)
             py = 35
             self.screen.blit(pause_surf, (px, py))
 
@@ -290,11 +452,15 @@ class IndianHighwaySimulation:
 
         dash_surf = pygame.Surface((dw, dh), pygame.SRCALPHA)
         pygame.draw.rect(dash_surf, (10, 15, 22, 238), (0, 0, dw, dh), border_radius=10)
-        pygame.draw.rect(dash_surf, (0, 190, 240, 140), (0, 0, dw, dh), width=2, border_radius=10)
+        pygame.draw.rect(
+            dash_surf, (0, 190, 240, 140), (0, 0, dw, dh), width=2, border_radius=10
+        )
 
         # Header
-        t_title = self.font_large.render("AI COGNITIVE DASHBOARD", True, (0, 235, 255))
-        t_sub = self.font_small.render("[TAB / T] Toggle  |  A* Neural Observation Log", True, (160, 195, 220))
+        t_title = self.font_large.render("ANALYTICS DASHBOARD", True, (0, 235, 255))
+        t_sub = self.font_small.render(
+            "[TAB / T] Toggle  |  A* Observation Log", True, (160, 195, 220)
+        )
         dash_surf.blit(t_title, (14, 12))
         dash_surf.blit(t_sub, (14, 34))
 
@@ -304,44 +470,99 @@ class IndianHighwaySimulation:
         obs = self.car.observations
         y_cur = 60
 
-        sec_title = self.font_medium.render("PERCEPTION & ACTUATORS", True, (255, 215, 60))
+        sec_title = self.font_medium.render(
+            "PERCEPTION & ACTUATORS", True, (255, 215, 60)
+        )
         dash_surf.blit(sec_title, (14, y_cur))
         y_cur += 20
 
-        threat_color = (80, 240, 120) if obs["threat"] == "CLEAR" else (255, 175, 50) if ("COW" in obs["threat"] or "AHEAD" in obs["threat"]) else (255, 80, 80)
-        t_threat = self.font_small.render(f"Focus Threat: {obs['threat']}", True, threat_color)
+        threat_color = (
+            (80, 240, 120)
+            if obs["threat"] == "CLEAR"
+            else (
+                (255, 175, 50)
+                if ("COW" in obs["threat"] or "AHEAD" in obs["threat"])
+                else (255, 80, 80)
+            )
+        )
+        t_threat = self.font_small.render(
+            f"Focus Threat: {obs['threat']}", True, threat_color
+        )
         dash_surf.blit(t_threat, (14, y_cur))
-        
-        t_rw = self.font_small.render(f"Road Width: {obs['road_width']}px", True, (210, 225, 240))
+
+        t_rw = self.font_small.render(
+            f"Road Width: {obs['road_width']}px", True, (210, 225, 240)
+        )
         dash_surf.blit(t_rw, (210, y_cur))
+        y_cur += 18
+
+        t_reg = obs.get("traffic_regime", "EMPTY")
+        t_cnt = obs.get("traffic_count", 0)
+        reg_col = (
+            (0, 230, 255)
+            if t_reg == "EMPTY"
+            else (
+                (80, 240, 120)
+                if t_reg == "LIGHT"
+                else (255, 200, 40) if t_reg == "MODERATE" else (255, 75, 75)
+            )
+        )
+        t_traf = self.font_small.render(
+            f"Traffic Density: {t_reg} ({t_cnt} nearby)", True, reg_col
+        )
+        dash_surf.blit(t_traf, (14, y_cur))
         y_cur += 20
 
         # Safety Margin Bar
         margin = obs["safety_margin"]
-        t_margin = self.font_small.render(f"Safety Margin: {margin}%", True, (200, 220, 235))
+        t_margin = self.font_small.render(
+            f"Safety Margin: {margin}%", True, (200, 220, 235)
+        )
         dash_surf.blit(t_margin, (14, y_cur))
         bar_w = 140
         bar_h = 9
-        pygame.draw.rect(dash_surf, (30, 40, 50), (210, y_cur + 2, bar_w, bar_h), border_radius=3)
+        pygame.draw.rect(
+            dash_surf, (30, 40, 50), (210, y_cur + 2, bar_w, bar_h), border_radius=3
+        )
         fill_w = int((margin / 100.0) * bar_w)
         margin_col = (80, 230, 130) if margin > 70 else (240, 180, 40)
-        pygame.draw.rect(dash_surf, margin_col, (210, y_cur + 2, fill_w, bar_h), border_radius=3)
+        pygame.draw.rect(
+            dash_surf, margin_col, (210, y_cur + 2, fill_w, bar_h), border_radius=3
+        )
         y_cur += 22
 
         # Steering Intent Bar
         steer_pct = obs["steer_pct"]
-        steer_dir = "CENTER" if abs(steer_pct) < 5 else ("LEFT" if steer_pct < 0 else "RIGHT")
-        t_steer = self.font_small.render(f"Steer: {steer_pct}% ({steer_dir})", True, (200, 220, 235))
+        steer_dir = (
+            "CENTER" if abs(steer_pct) < 5 else ("LEFT" if steer_pct < 0 else "RIGHT")
+        )
+        t_steer = self.font_small.render(
+            f"Steer: {steer_pct}% ({steer_dir})", True, (200, 220, 235)
+        )
         dash_surf.blit(t_steer, (14, y_cur))
         s_bar_w = 140
-        pygame.draw.rect(dash_surf, (30, 40, 50), (210, y_cur + 2, s_bar_w, bar_h), border_radius=3)
+        pygame.draw.rect(
+            dash_surf, (30, 40, 50), (210, y_cur + 2, s_bar_w, bar_h), border_radius=3
+        )
         cx_bar = 210 + s_bar_w // 2
-        pygame.draw.line(dash_surf, (150, 150, 160), (cx_bar, y_cur), (cx_bar, y_cur + bar_h + 2), 1)
+        pygame.draw.line(
+            dash_surf, (150, 150, 160), (cx_bar, y_cur), (cx_bar, y_cur + bar_h + 2), 1
+        )
         s_fill = int((steer_pct / 100.0) * (s_bar_w // 2))
         if s_fill < 0:
-            pygame.draw.rect(dash_surf, (0, 220, 255), (cx_bar + s_fill, y_cur + 2, -s_fill, bar_h), border_radius=2)
+            pygame.draw.rect(
+                dash_surf,
+                (0, 220, 255),
+                (cx_bar + s_fill, y_cur + 2, -s_fill, bar_h),
+                border_radius=2,
+            )
         elif s_fill > 0:
-            pygame.draw.rect(dash_surf, (0, 220, 255), (cx_bar, y_cur + 2, s_fill, bar_h), border_radius=2)
+            pygame.draw.rect(
+                dash_surf,
+                (0, 220, 255),
+                (cx_bar, y_cur + 2, s_fill, bar_h),
+                border_radius=2,
+            )
         y_cur += 22
 
         # Throttle & Brake
@@ -350,19 +571,35 @@ class IndianHighwaySimulation:
         t_pwr = self.font_small.render(f"Throttle/Brake:", True, (200, 220, 235))
         dash_surf.blit(t_pwr, (14, y_cur))
         # Throttle (Green)
-        pygame.draw.rect(dash_surf, (30, 40, 50), (210, y_cur + 2, 70, bar_h), border_radius=3)
-        pygame.draw.rect(dash_surf, (50, 220, 100), (210, y_cur + 2, int(70 * (th_pct/100.0)), bar_h), border_radius=3)
+        pygame.draw.rect(
+            dash_surf, (30, 40, 50), (210, y_cur + 2, 70, bar_h), border_radius=3
+        )
+        pygame.draw.rect(
+            dash_surf,
+            (50, 220, 100),
+            (210, y_cur + 2, int(70 * (th_pct / 100.0)), bar_h),
+            border_radius=3,
+        )
         # Brake (Red)
-        pygame.draw.rect(dash_surf, (30, 40, 50), (286, y_cur + 2, 64, bar_h), border_radius=3)
+        pygame.draw.rect(
+            dash_surf, (30, 40, 50), (286, y_cur + 2, 64, bar_h), border_radius=3
+        )
         if brk_pct > 0:
-            pygame.draw.rect(dash_surf, (255, 60, 50), (286, y_cur + 2, int(64 * (brk_pct/100.0)), bar_h), border_radius=3)
+            pygame.draw.rect(
+                dash_surf,
+                (255, 60, 50),
+                (286, y_cur + 2, int(64 * (brk_pct / 100.0)), bar_h),
+                border_radius=3,
+            )
         y_cur += 24
 
         # 360° Circular Disc Sensor Radar Widget
         pygame.draw.line(dash_surf, (40, 70, 95), (14, y_cur), (dw - 14, y_cur), 1)
         y_cur += 8
 
-        radar_title = self.font_medium.render("360° SENSOR DISC RADAR", True, (0, 225, 255))
+        radar_title = self.font_medium.render(
+            "360° SENSOR DISC RADAR", True, (0, 225, 255)
+        )
         dash_surf.blit(radar_title, (14, y_cur))
         y_cur += 20
 
@@ -374,10 +611,18 @@ class IndianHighwaySimulation:
 
         # Radar telemetry info beside radar
         s_status = obs.get("sensor_status", "CLEAR")
-        s_col = (255, 60, 60) if s_status == "ALERT" else (255, 200, 40) if s_status == "CAUTION" else (80, 240, 120)
+        s_col = (
+            (255, 60, 60)
+            if s_status == "ALERT"
+            else (255, 200, 40) if s_status == "CAUTION" else (80, 240, 120)
+        )
         t_s1 = self.font_small.render(f"Sensor: {s_status}", True, s_col)
-        t_s2 = self.font_small.render(f"Range: {obs.get('sensor_dist', 180)} px", True, (210, 225, 240))
-        t_s3 = self.font_small.render(f"Threat: {obs.get('sensor_threat', 'CLEAR')}", True, (255, 180, 100))
+        t_s2 = self.font_small.render(
+            f"Range: {obs.get('sensor_dist', 180)} px", True, (210, 225, 240)
+        )
+        t_s3 = self.font_small.render(
+            f"Threat: {obs.get('sensor_threat', 'CLEAR')}", True, (255, 180, 100)
+        )
         rep_pct = int(self.car.sensor.repulsion_steer * 100)
         t_s4 = self.font_small.render(f"Repulsion: {rep_pct}%", True, (180, 220, 240))
         dash_surf.blit(t_s1, (116, y_cur + 4))
@@ -391,7 +636,11 @@ class IndianHighwaySimulation:
         y_cur += 8
 
         # Decision Making Stream
-        dec_title = self.font_medium.render("INTERNAL DELIBERATION STREAM", True, (255, 215, 60))
+        dec_title = self.font_medium.render(
+            f"INTERNAL STREAM ({self.car.total_signals})",
+            True,
+            (255, 215, 60),
+        )
         dash_surf.blit(dec_title, (14, y_cur))
         y_cur += 18
 
@@ -428,26 +677,42 @@ class IndianHighwaySimulation:
 
         # Interactive Traffic Density Slider Widget (Click & Drag / Keyboard)
         slider_y = dh - 66
-        pygame.draw.line(dash_surf, (40, 70, 95), (14, slider_y - 10), (dw - 14, slider_y - 10), 1)
+        pygame.draw.line(
+            dash_surf, (40, 70, 95), (14, slider_y - 10), (dw - 14, slider_y - 10), 1
+        )
 
         d_pct = int(self.obstacles.traffic_density * 100)
-        d_status = "SPARSE" if d_pct <= 25 else "NORMAL" if d_pct <= 55 else "HIGH" if d_pct <= 80 else "RUSH HOUR"
-        t_d_label = self.font_small.render(f"TRAFFIC DENSITY: {d_pct}% [{d_status}]", True, (255, 215, 60))
+        d_status = (
+            "SPARSE"
+            if d_pct <= 25
+            else "NORMAL" if d_pct <= 55 else "HIGH" if d_pct <= 80 else "RUSH HOUR"
+        )
+        t_d_label = self.font_small.render(
+            f"VEHICLE DENSITY: {d_pct}% [{d_status}] ({len(self.obstacles.traffic)} active)",
+            True,
+            (255, 215, 60),
+        )
         dash_surf.blit(t_d_label, (16, slider_y - 2))
 
         track_y = slider_y + 16
         track_w = 324
         track_h = 10
-        pygame.draw.rect(dash_surf, (25, 34, 46), (18, track_y, track_w, track_h), border_radius=5)
+        pygame.draw.rect(
+            dash_surf, (25, 34, 46), (18, track_y, track_w, track_h), border_radius=5
+        )
 
         fill_w = int(self.obstacles.traffic_density * track_w)
-        pygame.draw.rect(dash_surf, (0, 220, 255), (18, track_y, fill_w, track_h), border_radius=5)
+        pygame.draw.rect(
+            dash_surf, (0, 220, 255), (18, track_y, fill_w, track_h), border_radius=5
+        )
 
         knob_x = 18 + fill_w
         pygame.draw.circle(dash_surf, (255, 255, 255), (knob_x, track_y + 5), 7)
         pygame.draw.circle(dash_surf, (0, 220, 255), (knob_x, track_y + 5), 9, width=2)
 
-        t_hint = self.font_small.render("[ [ / ] ] Keys or Click & Drag Slider", True, (140, 175, 200))
+        t_hint = self.font_small.render(
+            "[ [ / ] ] Keys or Click & Drag Slider", True, (140, 175, 200)
+        )
         dash_surf.blit(t_hint, (16, track_y + 16))
 
         self.screen.blit(dash_surf, (dx, dy))
@@ -464,12 +729,8 @@ class IndianHighwaySimulation:
 
             self.road.draw(self.screen, self.camera_y)
             self.draw_roadside_props()
-            self.obstacles.draw(self.screen, self.camera_y,
-                                show_radar=self.show_hitboxes_and_radar,
-                                show_hitbox=self.show_hitboxes_and_radar)
-            self.car.draw(self.screen, self.camera_y,
-                          show_radar=self.show_hitboxes_and_radar,
-                          show_hitbox=self.show_hitboxes_and_radar)
+            self.obstacles.draw(self.screen, self.camera_y)
+            self.car.draw(self.screen, self.camera_y, show_radar=self.show_radar)
             self.draw_debug_overlay()
             self.draw_hud()
             self.draw_dashboard()
@@ -488,9 +749,11 @@ class IndianHighwaySimulation:
 
 
 if __name__ == "__main__":
-    is_headless = "--headless" in sys.argv or os.environ.get("SDL_VIDEODRIVER") == "dummy"
+    is_headless = (
+        "--headless" in sys.argv or os.environ.get("SDL_VIDEODRIVER") == "dummy"
+    )
     sim = IndianHighwaySimulation(headless=is_headless)
-    
+
     max_f = None
     save_img = None
     for arg in sys.argv:

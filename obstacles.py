@@ -6,9 +6,12 @@ following and complete stop-at-rest support), and Jaywalking Pedestrians.
 import math
 import random
 import pygame
+from typing import Tuple, Optional, List
 from config import (
     COLOR_POTHOLE_INNER, COLOR_POTHOLE_RIM,
-    SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN
+    SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN,
+    REST_ACCEL_FACTOR,
+    VEHICLE_COLLISION_PENALTY_SCALE, CROWDED_AREA_SPEED_PENALTY_MAX, CROWDED_NEIGHBOR_RADIUS
 )
 from sensor import CircularDiscSensor, get_oriented_box_corners
 
@@ -519,6 +522,82 @@ class Cow:
             pygame.draw.rect(surface, (255, 200, 80), (int(self.x - self.width / 2), int(sy - self.length / 2), int(self.width), int(self.length)), 1)
 
 
+VEHICLE_SIZE_RANK = {
+    'BIKE': 1,
+    'AUTO': 2,
+    'CAR': 3,
+    'PLAYER': 3,
+    'TRUCK': 4,
+    'BUS': 5
+}
+
+def negotiate_deadlock_priority(v_self, v_other, road) -> Tuple[bool, str]:
+    """
+    Evaluates deadlock right-of-way between two vehicles using principled rules:
+    1. Size hierarchy: Smaller, more agile vehicles move first (Bike < Auto < Car < Truck < Bus).
+    2. Future trajectory collision projection: Check future points along headings.
+    3. Available Escape Space: The vehicle with more lateral and forward maneuvering room moves first.
+    4. Deterministic spatial tie-breaker: Avoids symmetric lock.
+    """
+    type_self = getattr(v_self, 'vtype', 'CAR')
+    type_other = getattr(v_other, 'vtype', 'CAR')
+    rank_self = VEHICLE_SIZE_RANK.get(type_self, 3)
+    rank_other = VEHICLE_SIZE_RANK.get(type_other, 3)
+
+    # Principle a: Smaller vehicle moves first
+    if rank_self < rank_other:
+        return True, f"Smaller vehicle priority ({type_self} < {type_other})"
+    elif rank_self > rank_other:
+        return False, f"Yielding to smaller vehicle ({type_other} < {type_self})"
+
+    # Principle b: Check trajectory collision & Available Escape Space
+    h_self = getattr(v_self, 'heading', 0.0)
+    h_other = getattr(v_other, 'heading', 0.0)
+
+    # Direction vectors
+    d_self_x = math.sin(h_self)
+    d_self_y = -math.cos(h_self)
+    d_other_x = math.sin(h_other)
+    d_other_y = -math.cos(h_other)
+
+    # 1.2s future lookahead position
+    dt_pred = 1.2
+    fut_self_x = v_self.x + d_self_x * 24.0 * dt_pred
+    fut_self_y = v_self.y + d_self_y * 24.0 * dt_pred
+    fut_other_x = v_other.x + d_other_x * 24.0 * dt_pred
+    fut_other_y = v_other.y + d_other_y * 24.0 * dt_pred
+
+    current_dist = math.hypot(v_self.x - v_other.x, v_self.y - v_other.y)
+    future_dist = math.hypot(fut_self_x - fut_other_x, fut_self_y - fut_other_y)
+
+    # Calculate available maneuvering space for both vehicles
+    left_self, right_self, _, _ = road.get_road_edges(v_self.y)
+    left_other, right_other, _, _ = road.get_road_edges(v_other.y)
+
+    # Free lateral escape space away from the other vehicle
+    if v_other.x >= v_self.x:
+        lat_space_self = max(0.0, v_self.x - left_self)
+        lat_space_other = max(0.0, right_other - v_other.x)
+    else:
+        lat_space_self = max(0.0, right_self - v_self.x)
+        lat_space_other = max(0.0, v_other.x - left_other)
+
+    # Total clearance score
+    total_space_self = lat_space_self + (v_other.y - v_self.y if v_self.y < v_other.y else 0.0)
+    total_space_other = lat_space_other + (v_self.y - v_other.y if v_other.y < v_self.y else 0.0)
+
+    if abs(total_space_self - total_space_other) > 12.0:
+        if total_space_self > total_space_other:
+            return True, "More available escape corridor space ahead"
+        else:
+            return False, "Holding position; other vehicle has more open space to maneuver"
+
+    # Principle d: Deterministic spatial tie-breaker (vehicle further downroad moves first)
+    if v_self.y < v_other.y:
+        return True, "Downroad position priority"
+    return False, "Holding for leading downroad vehicle"
+
+
 class TrafficVehicle:
     """
     Dynamic traffic vehicle with realistic vehicular kinematics:
@@ -528,14 +607,24 @@ class TrafficVehicle:
     4. Smooth kinematic lane cuts without teleporting.
     """
     TYPES = ['TRUCK', 'BUS', 'CAR', 'AUTO', 'BIKE']
+    TRAFFIC_VEHICLE_DIMS = {
+        'TRUCK': (34, 78),
+        'BUS': (32, 88),
+        'CAR': (26, 48),
+        'AUTO': (22, 36),
+        'BIKE': (14, 32)
+    }
 
-    def __init__(self, x: float, y: float, vtype: str, speed: float, lateral_offset: float = 0.0):
+    def __init__(self, x: float, y: float, vtype: str, speed: float, lateral_offset: float = 0.0,
+                 lane_idx: int = 0, sub_lane_jitter: float = 0.0):
         self.x = x
         self.y = y
         self.vtype = vtype
         self.cruising_speed = speed
         self.speed = speed
         self.lateral_offset = lateral_offset
+        self.lane_idx = lane_idx
+        self.sub_lane_jitter = sub_lane_jitter
         self.heading = 0.0
         self.angle_deg = 0.0
         self.hit = False
@@ -548,6 +637,7 @@ class TrafficVehicle:
         self.accel = 130.0
         self.decel = 320.0
         self.is_braking = False
+        self.stopped_timer = 0.0
 
         if vtype == 'TRUCK':
             self.width = 34
@@ -619,147 +709,371 @@ class TrafficVehicle:
             self.honk_timer -= dt
             self.is_honking = (self.honk_timer > 0)
 
-        # Update internal 360° radar
-        self.radar.update(self, road, all_traffic=all_traffic, player_car=player_car,
-                          pedestrians=pedestrians, cows=cows, dt=dt)
+        # Precompute road and lane geometry at current y
+        lanes, lane_w = road.get_virtual_lanes(self.y)
+        num_lanes = len(lanes)
+        if self.lane_idx >= num_lanes:
+            self.lane_idx = min(range(num_lanes), key=lambda i: abs(self.x - lanes[i]))
+        else:
+            self.lane_idx = max(0, self.lane_idx)
+
+        left, right, road_cx, rw = road.get_road_edges(self.y)
+        safe_left = left + self.width * 0.65 + 6.0
+        safe_right = right - self.width * 0.65 - 6.0
 
         # 1. Autonomous collision avoidance & speed control (supports stopping to 0)
         desired_speed = self.cruising_speed
 
-        # 🛡️ RED-ZONE SAFE DISTANCE ALGORITHM (APPLIED TO ALL VEHICLES EXCEPT BIKES)
-        # Keeps other vehicles out of the red zone mostly. When an encroaching vehicle enters
-        # the red zone, slowly maneuver past it into open lane space.
-        if self.vtype != 'BIKE':
-            if self.radar.vehicle_in_red:
-                # Predictive evasive lateral displacement away from encroaching vehicle
-                self.lateral_offset += self.radar.red_zone_maneuver_steer * 45.0 * dt
-                # Safe maneuver speed
-                if self.radar.red_zone_slow_speed < 900.0:
-                    desired_speed = min(desired_speed, self.radar.red_zone_slow_speed)
-                # Critical direct touch emergency stop
-                if self.radar.critical_breached and self.radar.red_zone_slow_speed == 0.0:
-                    desired_speed = 0.0
+        # Crowded area high speed penalty for NPC vehicles (penalize high speed by up to 20% in crowds)
+        if all_traffic:
+            nearby_neighbors = [
+                other for other in all_traffic
+                if other is not self and abs(other.y - self.y) < CROWDED_NEIGHBOR_RADIUS and abs(other.x - self.x) < 85.0
+            ]
+            if len(nearby_neighbors) >= 2 and self.speed > 80.0:
+                crowd_ratio = min(1.0, (len(nearby_neighbors) - 1) / 2.0)
+                speed_ratio = min(1.0, max(0.0, (self.speed - 75.0) / 100.0))
+                crowd_penalty = CROWDED_AREA_SPEED_PENALTY_MAX * crowd_ratio * speed_ratio
+                desired_speed *= (1.0 - crowd_penalty)
 
-        # A. Check vehicles ahead
+        # A. Check vehicles ahead (IDM-like car following: no false lane stops, smooth pacing behind moving leaders)
         if all_traffic:
             for other in all_traffic:
                 if other is self:
                     continue
-                dy = self.y - other.y
+                dy = self.y - other.y  # > 0 means other is ahead of self
                 dx = abs(self.x - other.x)
-                if 0 < dy < 155 and dx < (self.width + other.width) * 0.65:
-                    min_gap = (self.length + other.length) * 0.5 + 32.0
-                    if dy < min_gap:
-                        desired_speed = 0.0 # Full stop at rest to prevent any collision!
+                phys_lat_limit = (self.width + other.width) * 0.5 + 4.0
+                same_lane = (hasattr(other, 'lane_idx') and self.lane_idx == other.lane_idx and dx < lane_w * 0.85)
+
+                no_passing_room = False
+                if self.x >= other.x:
+                    if (right - (other.x + other.width * 0.5)) < (self.width + 16.0):
+                        no_passing_room = True
+                else:
+                    if ((other.x - other.width * 0.5) - left) < (self.width + 16.0):
+                        no_passing_room = True
+
+                in_path = (dx < phys_lat_limit) or same_lane or (no_passing_room and dx < (self.width + other.width) * 0.5 + 28.0)
+                if in_path and 0 < dy < 190.0:
+                    comb_half_len = (self.length + other.length) * 0.5
+                    emergency_gap = comb_half_len + 16.0
+                    safe_gap = emergency_gap + max(22.0, min(90.0, self.speed * 0.48))
+                    if dy < comb_half_len + 8.0:
+                        desired_speed = 0.0  # Immediate bumper contact prevention
+                    elif dy <= emergency_gap:
+                        if other.speed < 6.0:
+                            if self.speed < 25.0:
+                                has_priority, _ = negotiate_deadlock_priority(self, other, road)
+                                if has_priority:
+                                    desired_speed = max(desired_speed, 22.0)
+                                else:
+                                    desired_speed = 0.0
+                                    if other.x > self.x:
+                                        self.sub_lane_jitter = max(-24.0, self.sub_lane_jitter - 12.0 * dt)
+                                    else:
+                                        self.sub_lane_jitter = min(24.0, self.sub_lane_jitter + 12.0 * dt)
+                            else:
+                                desired_speed = 0.0
+                        else:
+                            desired_speed = min(desired_speed, max(0.0, other.speed * 0.65))
+                    elif dy < safe_gap:
+                        ratio = (dy - emergency_gap) / max(1.0, safe_gap - emergency_gap)
+                        target_follow_speed = other.speed * (0.70 + 0.30 * ratio)
+                        desired_speed = min(desired_speed, max(0.0, target_follow_speed))
                     else:
-                        gap_factor = max(0.0, min(1.0, (dy - min_gap) / 65.0))
-                        desired_speed = min(desired_speed, other.speed * gap_factor)
+                        closing_speed = self.speed - other.speed
+                        if closing_speed > 25.0:
+                            desired_speed = min(desired_speed, other.speed + 25.0)
 
         # B. Check player car ahead
         if player_car:
             dy = self.y - player_car.y
             dx = abs(self.x - player_car.x)
-            if 0 < dy < 155 and dx < (self.width + player_car.width) * 0.65:
-                min_gap = (self.length + player_car.length) * 0.5 + 32.0
-                if dy < min_gap:
-                    desired_speed = 0.0 # Full stop behind player car
-                else:
-                    gap_factor = max(0.0, min(1.0, (dy - min_gap) / 65.0))
-                    desired_speed = min(desired_speed, player_car.speed * gap_factor)
+            phys_lat_limit = (self.width + player_car.width) * 0.5 + 4.0
+            same_lane = (dx < lane_w * 0.85)
+            no_passing_room = False
+            if self.x >= player_car.x:
+                if (right - (player_car.x + player_car.width * 0.5)) < (self.width + 16.0):
+                    no_passing_room = True
+            else:
+                if ((player_car.x - player_car.width * 0.5) - left) < (self.width + 16.0):
+                    no_passing_room = True
+            in_path = (dx < phys_lat_limit) or same_lane or (no_passing_room and dx < (self.width + player_car.width) * 0.5 + 28.0)
+            if in_path and 0 < dy < 190.0:
+                comb_half_len = (self.length + player_car.length) * 0.5
+                emergency_gap = comb_half_len + 16.0
+                safe_gap = emergency_gap + max(22.0, min(90.0, self.speed * 0.48))
+                if dy < comb_half_len + 8.0:
+                    desired_speed = 0.0
+                elif dy <= emergency_gap:
+                    if player_car.speed < 6.0:
+                        if self.speed < 25.0:
+                            has_priority, _ = negotiate_deadlock_priority(self, player_car, road)
+                            if has_priority:
+                                desired_speed = max(desired_speed, 22.0)
+                            else:
+                                desired_speed = 0.0
+                                if player_car.x > self.x:
+                                    self.sub_lane_jitter = max(-24.0, self.sub_lane_jitter - 12.0 * dt)
+                                else:
+                                    self.sub_lane_jitter = min(24.0, self.sub_lane_jitter + 12.0 * dt)
+                        else:
+                            desired_speed = 0.0
+                    else:
+                        desired_speed = min(desired_speed, max(0.0, player_car.speed * 0.65))
+                elif dy < safe_gap:
+                    ratio = (dy - emergency_gap) / max(1.0, safe_gap - emergency_gap)
+                    target_follow_speed = player_car.speed * (0.70 + 0.30 * ratio)
+                    desired_speed = min(desired_speed, max(0.0, target_follow_speed))
 
-        # C. Check crossing pedestrians ahead
+        # C. Active Side-by-Side Repulsion & Lateral Deconfliction
+        lateral_push_offset = 0.0
+        repel_vx = 0.0
+        check_obstacles = list(all_traffic or [])
+        if player_car:
+            check_obstacles.append(player_car)
+
+        for other in check_obstacles:
+            if other is self:
+                continue
+            dy_abs = abs(self.y - other.y)
+            comb_len = (self.length + other.length) * 0.5
+            if dy_abs < comb_len + 14.0:
+                comb_w = (self.width + other.width) * 0.5
+                dx_abs = abs(self.x - other.x)
+                overlap = (comb_w + 14.0) - dx_abs
+                if overlap > 0:
+                    push_dir = 1.0 if self.x >= other.x else -1.0
+                    push_mag = min(60.0, max(25.0, overlap * 4.0))
+                    repel_vx += push_dir * push_mag
+                    lateral_push_offset += push_dir * min(22.0, max(8.0, overlap))
+                    if self.y > other.y:  # self is behind other
+                        # Trailing vehicle yields speed to slip safely behind
+                        desired_speed = min(desired_speed, max(0.0, other.speed * 0.50))
+                        if dx_abs < comb_w + 6.0:
+                            desired_speed = 0.0
+                    else:
+                        # Leading vehicle accelerates slightly to clear pinch
+                        desired_speed = max(desired_speed, other.speed * 1.10)
+
+        # D. Check crossing pedestrians ahead
         if pedestrians:
             for ped in pedestrians:
                 dy = self.y - ped.y
                 dx = abs(self.x - ped.x)
-                if 0 < dy < 125 and dx < (self.width * 0.5 + ped.radius + 20.0):
-                    if dy < 50.0:
-                        desired_speed = 0.0 # Full stop with safe margin for pedestrians!
+                ped_margin = 14.0 if getattr(ped, 'state', '') == 'CROSSING' else 4.0
+                if 0 < dy < 95.0 and dx < (self.width * 0.5 + ped.radius + ped_margin):
+                    if dy < 38.0:
+                        desired_speed = 0.0  # Stop for crossing pedestrian directly ahead
                         self.is_honking = True
                         self.honk_timer = 0.45
                     else:
                         desired_speed = min(desired_speed, 18.0)
 
-        # D. Check cows ahead (predict behavior and adjust trajectory from far off)
+        # E. Check cows ahead (predict behavior and adjust trajectory from far off)
         if cows:
             for cow in cows:
                 dy = self.y - cow.y
                 dx = abs(self.x - cow.x)
                 if 0 < dy < 190 and dx < (self.width * 0.5 + cow.width * 0.5 + 30.0):
-                    left_e, right_e, _, _ = road.get_road_edges(self.y)
-                    safe_l = left_e + self.width * 0.65 + 6.0
-                    safe_r = right_e - self.width * 0.65 - 6.0
                     if cow.x >= self.x:
-                        self.target_x = max(safe_l, min(self.target_x, cow.x - cow.width * 0.5 - self.width * 0.5 - 24.0))
+                        self.sub_lane_jitter = max(-26.0, self.sub_lane_jitter - 18.0 * dt)
                     else:
-                        self.target_x = min(safe_r, max(self.target_x, cow.x + cow.width * 0.5 + self.width * 0.5 + 24.0))
+                        self.sub_lane_jitter = min(26.0, self.sub_lane_jitter + 18.0 * dt)
 
                     if dy < 60.0:
-                        desired_speed = 0.0 # Full stop before cow to prevent hitting
+                        desired_speed = 0.0  # Full stop before cow to prevent hitting
                         self.is_honking = True
                         self.honk_timer = 0.5
                     elif dy < 125.0:
                         desired_speed = min(desired_speed, 32.0)
 
-        # E. Execute acceleration / braking
+        # F. Execute acceleration / braking (Reduced acceleration from rest by 20%, +60% sharper collision avoidance braking)
         if desired_speed < self.speed:
-            self.speed = max(desired_speed, self.speed - self.decel * dt)
+            effective_decel = self.decel * VEHICLE_COLLISION_PENALTY_SCALE
+            self.speed = max(desired_speed, self.speed - effective_decel * dt)
             self.is_braking = True
         else:
-            self.speed = min(desired_speed, self.speed + self.accel * dt)
+            rest_scale = REST_ACCEL_FACTOR if self.speed < 40.0 else (REST_ACCEL_FACTOR + (1.0 - REST_ACCEL_FACTOR) * min(1.0, (self.speed - 40.0) / 40.0))
+            effective_accel = self.accel * rest_scale
+            self.speed = min(desired_speed, self.speed + effective_accel * dt)
             self.is_braking = False
 
-        self.speed = max(0.0, self.speed) # Can come to complete rest
+        self.speed = max(0.0, self.speed)
 
         # Move forward along road
         self.y -= self.speed * dt
-        left, right, road_cx, rw = road.get_road_edges(self.y)
 
-        # 2. Road boundaries bounds
+        # Update road edges and virtual lanes at new y
+        left, right, road_cx, rw = road.get_road_edges(self.y)
         safe_left = left + self.width * 0.65 + 6.0
         safe_right = right - self.width * 0.65 - 6.0
+        lanes, lane_w = road.get_virtual_lanes(self.y)
+        num_lanes = len(lanes)
+        if self.lane_idx >= num_lanes:
+            self.lane_idx = min(range(num_lanes), key=lambda i: abs(self.x - lanes[i]))
+        else:
+            self.lane_idx = max(0, self.lane_idx)
 
-        # 3. Random lane cut decision (checks gap clearance first)
+        # G. Standstill / Deadlock Recovery
+        if self.speed < 5.0:
+            self.stopped_timer += dt
+            if self.stopped_timer > 1.2:
+                candidates = []
+                if self.lane_idx > 0:
+                    candidates.append(self.lane_idx - 1)
+                if self.lane_idx < num_lanes - 1:
+                    candidates.append(self.lane_idx + 1)
+
+                best_lane = None
+                for c_lane in candidates:
+                    c_x = lanes[c_lane]
+                    clear = True
+                    for o in (all_traffic or []):
+                        if o is self:
+                            continue
+                        if abs(o.y - self.y) < (self.length + o.length) * 0.5 + 40.0 and abs(o.x - c_x) < (self.width + o.width) * 0.5 + 14.0:
+                            clear = False
+                            break
+                    if clear and player_car:
+                        if abs(player_car.y - self.y) < (self.length + player_car.length) * 0.5 + 40.0 and abs(player_car.x - c_x) < (self.width + player_car.width) * 0.5 + 14.0:
+                            clear = False
+                    if clear:
+                        best_lane = c_lane
+                        break
+
+                if best_lane is not None:
+                    self.lane_idx = best_lane
+                    self.sub_lane_jitter = 0.0
+                    self.stopped_timer = 0.0
+                    self.speed = max(self.speed, 18.0)
+                elif self.stopped_timer > 2.2:
+                    # Check if forward blocker has moved
+                    has_blocker = False
+                    for o in (all_traffic or []):
+                        if o is self:
+                            continue
+                        dy = self.y - o.y
+                        dx = abs(self.x - o.x)
+                        if 0 < dy < (self.length + o.length) * 0.5 + 18.0 and dx < (self.width + o.width) * 0.5 + 6.0:
+                            has_blocker = True
+                            break
+                    if not has_blocker:
+                        self.stopped_timer = 0.0
+                        self.speed = max(self.speed, 18.0)
+        else:
+            self.stopped_timer = max(0.0, self.stopped_timer - dt * 2.0)
+
+        # H. Random lane cut decision with MOBIL-like safe gap acceptance
         self.cut_timer -= dt
         if self.cut_timer <= 0:
-            if random.random() < self.cut_prob:
-                if self.vtype in ('TRUCK', 'BUS'):
-                    cand_offset = random.choice([-rw * 0.16, 0.0, rw * 0.15])
-                elif self.vtype == 'AUTO':
-                    cand_offset = random.choice([-rw * 0.26, -rw * 0.10, rw * 0.20])
-                elif self.vtype == 'BIKE':
-                    cand_offset = random.uniform(-rw * 0.28, rw * 0.28)
-                else: # CAR
-                    cand_offset = random.choice([-rw * 0.22, 0.0, rw * 0.22])
+            if random.random() < self.cut_prob and self.speed > 15.0:
+                possible_lanes = [idx for idx in range(num_lanes) if idx != self.lane_idx]
+                if possible_lanes:
+                    cand_lane_idx = random.choice(possible_lanes)
+                    if self.vtype == 'BIKE':
+                        cand_jitter = random.uniform(-lane_w * 0.16, lane_w * 0.16)
+                    elif self.vtype in ('TRUCK', 'BUS'):
+                        cand_jitter = random.uniform(-lane_w * 0.06, lane_w * 0.06)
+                    else:
+                        cand_jitter = random.uniform(-lane_w * 0.08, lane_w * 0.08)
 
-                cand_x = road_cx + cand_offset
-                cand_x = max(safe_left + 4, min(safe_right - 4, cand_x))
+                    cand_x = lanes[cand_lane_idx] + cand_jitter
+                    cand_x = max(safe_left + 4.0, min(safe_right - 4.0, cand_x))
 
-                # Check if target lateral lane is clear of neighbors
-                is_clear = True
-                if all_traffic:
-                    for other in all_traffic:
+                    is_clear = True
+                    check_vehicles = list(all_traffic or [])
+                    if player_car:
+                        check_vehicles.append(player_car)
+
+                    for other in check_vehicles:
                         if other is self:
                             continue
-                        if abs(other.y - self.y) < 70 and abs(other.x - cand_x) < (self.width + other.width) * 0.65:
-                            is_clear = False
-                            break
-                if player_car and abs(player_car.y - self.y) < 70 and abs(player_car.x - cand_x) < (self.width + player_car.width) * 0.65:
-                    is_clear = False
 
-                if is_clear:
-                    self.lateral_offset = cand_offset
+                        comb_len = (self.length + other.length) * 0.5
+                        comb_w = (self.width + other.width) * 0.5
+
+                        other_to_target_dx = abs(other.x - cand_x)
+                        mid_x = (self.x + cand_x) * 0.5
+                        sweep_w = comb_w + abs(cand_x - self.x) * 0.5 + 8.0
+                        in_corridor = (other_to_target_dx < comb_w + 16.0) or (abs(other.x - mid_x) < sweep_w)
+
+                        if in_corridor:
+                            dy = self.y - other.y  # > 0 means other is ahead of self
+                            if abs(dy) < comb_len + 25.0:
+                                is_clear = False
+                                break
+                            if dy > 0:
+                                if dy < comb_len + 35.0:
+                                    is_clear = False
+                                    break
+                                rel_spd = self.speed - other.speed
+                                if rel_spd > 15.0 and dy / rel_spd < 2.2:
+                                    is_clear = False
+                                    break
+                            else:
+                                dist_behind = -dy
+                                if dist_behind < comb_len + 40.0:
+                                    is_clear = False
+                                    break
+                                rel_spd = other.speed - self.speed
+                                if rel_spd > 5.0 and dist_behind / rel_spd < 2.5:
+                                    is_clear = False
+                                    break
+
+                    if is_clear:
+                        self.lane_idx = cand_lane_idx
+                        self.sub_lane_jitter = cand_jitter
 
             self.cut_timer = random.uniform(self.cut_interval[0], self.cut_interval[1])
 
-        # 4. Smooth lateral kinematics with STRICT ROAD CLAMPING (Never go offroad!)
-        target_x = road_cx + self.lateral_offset
-        target_x = max(safe_left, min(safe_right, target_x))
+        # I. Smooth lateral kinematics with STRICT ROAD CLAMPING & non-holonomic velocity bounds
+        if self.speed <= 1.0:
+            self.vx = 0.0
+        else:
+            target_x = lanes[self.lane_idx] + self.sub_lane_jitter + lateral_push_offset
 
-        lateral_error = target_x - self.x
-        desired_vx = max(-self.max_lat_spd, min(self.max_lat_spd, lateral_error * 2.0))
-        self.vx += (desired_vx - self.vx) * min(1.0, self.lat_accel * dt)
-        self.x += self.vx * dt
+            # Enforce directional non-crossing lateral constraint against any longitudinally overlapping vehicle
+            for other in check_obstacles:
+                if other is self:
+                    continue
+                dy_abs = abs(self.y - other.y)
+                comb_len = (self.length + other.length) * 0.5
+                if dy_abs < comb_len + 16.0:
+                    comb_w = (self.width + other.width) * 0.5
+                    safe_lat_gap = comb_w + 8.0
+                    if self.x >= other.x:
+                        target_x = max(target_x, other.x + safe_lat_gap)
+                    else:
+                        target_x = min(target_x, other.x - safe_lat_gap)
+
+            target_x = max(safe_left, min(safe_right, target_x))
+            self.lateral_offset = target_x - road_cx
+
+            lateral_error = target_x - self.x
+            effective_max_lat = min(self.max_lat_spd, max(8.0, self.speed * 0.65))
+            desired_vx = max(-effective_max_lat, min(effective_max_lat, lateral_error * 2.4))
+            self.vx += (desired_vx - self.vx) * min(1.0, self.lat_accel * dt)
+            self.vx += repel_vx * dt
+
+            self.x += self.vx * dt
+
+            # Hard physical non-penetration barrier against longitudinally overlapping vehicles
+            for other in check_obstacles:
+                if other is self:
+                    continue
+                dy_abs = abs(self.y - other.y)
+                comb_len = (self.length + other.length) * 0.5
+                if dy_abs < comb_len + 4.0:
+                    comb_w = (self.width + other.width) * 0.5
+                    dx = self.x - other.x
+                    if dx >= 0 and dx < comb_w + 2.0:
+                        self.x = other.x + comb_w + 2.0
+                        self.vx = max(0.0, self.vx)
+                    elif dx < 0 and -dx < comb_w + 2.0:
+                        self.x = other.x - comb_w - 2.0
+                        self.vx = min(0.0, self.vx)
 
         # Enforce strict boundary clamp:
         if self.x < safe_left:
@@ -769,9 +1083,8 @@ class TrafficVehicle:
             self.x = safe_right
             self.vx = min(0.0, self.vx)
 
-        # 5. Heading calculation with smooth lane-change sway
+        tilt_angle = math.atan2(self.vx, max(30.0, self.speed)) * 0.60
         road_tangent = road.get_tangent_angle(self.y)
-        tilt_angle = math.atan2(self.vx, max(40.0, self.speed)) * 0.60
         self.heading = road_tangent + tilt_angle
         self.angle_deg = -math.degrees(self.heading)
 
@@ -867,12 +1180,117 @@ class TrafficVehicle:
         rot_rect = rotated_surf.get_rect(center=(int(self.x), int(sy)))
         surface.blit(rotated_surf, rot_rect)
 
-        # Draw rotated oriented bounding box (OBB) hitbox if enabled
-        if show_hitbox:
-            corners = get_oriented_box_corners(self.x, sy, self.width, self.length, self.heading)
-            hb_color = (255, 60, 60) if self.radar.vehicle_in_red else (255, 215, 30) if self.radar.vehicle_in_caution else (80, 240, 120)
-            pygame.draw.polygon(surface, hb_color, [(int(px), int(py)) for px, py in corners], width=2)
-            pygame.draw.circle(surface, (255, 255, 255), (int(self.x), int(sy)), 2)
+    def get_velocity_vector(self) -> Tuple[float, float]:
+        """Returns instantaneous velocity vector (vx, vy) in world coordinates."""
+        return (self.vx, -self.speed)
+
+    def get_predicted_trajectory(self, road, duration: float = 2.0, steps: int = 5) -> List[Tuple[float, float]]:
+        """
+        Projects future positions along the vehicle's heading and lane trajectory
+        over the specified duration (seconds).
+        """
+        if self.speed <= 1.0 and abs(self.vx) <= 1.0:
+            return [(self.x, self.y)]
+
+        pts = [(self.x, self.y)]
+        dt_step = duration / max(1, steps)
+        curr_y = self.y
+        left, right, road_cx, _ = road.get_road_edges(curr_y)
+        safe_left = left + self.width * 0.65 + 6.0
+        safe_right = right - self.width * 0.65 - 6.0
+
+        for i in range(1, steps + 1):
+            tau = i * dt_step
+            fut_y = self.y - self.speed * tau
+            lanes, _ = road.get_virtual_lanes(fut_y)
+            if 0 <= self.lane_idx < len(lanes):
+                tgt_x = lanes[self.lane_idx] + self.sub_lane_jitter
+            else:
+                tgt_x = road.get_road_center(fut_y) + getattr(self, 'lateral_offset', 0.0)
+
+            tgt_x = max(safe_left, min(safe_right, tgt_x))
+            blend = min(1.0, tau * self.lat_accel)
+            fut_x = (self.x + self.vx * tau) * (1.0 - blend) + tgt_x * blend
+            pts.append((fut_x, fut_y))
+
+        return pts
+
+    def draw_direction_vector(self, surface: pygame.Surface, camera_y: float, road=None):
+        """
+        Renders the directional velocity vector and projected trajectory path in debug view.
+        """
+        sy = self.y - camera_y
+        h = surface.get_height()
+        if sy < -180 or sy > h + 180:
+            return
+
+        if self.speed <= 1.5 and abs(self.vx) <= 1.0:
+            # Standstill vehicle: small amber warning ring
+            pygame.draw.circle(surface, (255, 180, 50, 70), (int(self.x), int(sy)), int(self.width * 0.65), 1)
+            return
+
+        # Vector magnitude scales with speed
+        vec_len = max(32.0, min(130.0, self.length * 0.45 + self.speed * 0.65))
+
+        # Velocity direction unit vector
+        speed_mag = math.hypot(self.vx, -self.speed)
+        if speed_mag > 1.0:
+            dir_x = self.vx / speed_mag
+            dir_y = -self.speed / speed_mag
+        else:
+            dir_x = math.sin(self.heading)
+            dir_y = -math.cos(self.heading)
+
+        front_dist = self.length * 0.45
+        front_x = self.x + math.sin(self.heading) * front_dist
+        front_y = sy - math.cos(self.heading) * front_dist
+        tip_x = front_x + dir_x * vec_len
+        tip_y = front_y + dir_y * vec_len
+
+        # Styling: Orange-red if lane cutting, Gold if fast, Cyan if steady cruising
+        is_cutting = abs(self.vx) > 3.5
+        if is_cutting:
+            vec_color = (255, 110, 40, 230)
+            glow_color = (255, 80, 20, 95)
+        elif self.speed > 130.0:
+            vec_color = (255, 215, 0, 235)
+            glow_color = (255, 190, 0, 95)
+        else:
+            vec_color = (50, 230, 255, 215)
+            glow_color = (0, 190, 255, 85)
+
+        # Draw projected trajectory path if road is available
+        if road:
+            traj_pts = self.get_predicted_trajectory(road, duration=1.8, steps=5)
+            if len(traj_pts) >= 2:
+                screen_traj = [(int(px), int(py - camera_y)) for px, py in traj_pts]
+                for i in range(len(screen_traj) - 1):
+                    p1 = screen_traj[i]
+                    p2 = screen_traj[i+1]
+                    pygame.draw.line(surface, glow_color, p1, p2, 4)
+                    pygame.draw.line(surface, vec_color, p1, p2, 2)
+                for pt in screen_traj[1:]:
+                    pygame.draw.circle(surface, vec_color, pt, 3)
+
+        # Draw main direction vector line
+        pygame.draw.line(surface, glow_color, (int(front_x), int(front_y)), (int(tip_x), int(tip_y)), 5)
+        pygame.draw.line(surface, vec_color, (int(front_x), int(front_y)), (int(tip_x), int(tip_y)), 2)
+
+        # Draw arrowhead
+        arrow_size = 8.5
+        angle = math.atan2(dir_y, dir_x)
+        left_angle = angle + math.pi * 0.82
+        right_angle = angle - math.pi * 0.82
+
+        p_left = (tip_x + math.cos(left_angle) * arrow_size, tip_y + math.sin(left_angle) * arrow_size)
+        p_right = (tip_x + math.cos(right_angle) * arrow_size, tip_y + math.sin(right_angle) * arrow_size)
+
+        pygame.draw.polygon(surface, vec_color, [
+            (int(tip_x), int(tip_y)),
+            (int(p_left[0]), int(p_left[1])),
+            (int(p_right[0]), int(p_right[1]))
+        ])
+
 
 
 class ObstacleManager:
@@ -887,6 +1305,7 @@ class ObstacleManager:
         self.next_traffic_y = -150
         self.next_pedestrian_y = -180
         self.next_cow_y = -320
+        self.last_player_y = 0.0
 
         self.traffic_density = 0.5  # 0.1 (Sparse) to 1.0 (Rush Hour)
         self.max_pedestrians = 7    # Independent separate quota (not counted as traffic)
@@ -899,19 +1318,104 @@ class ObstacleManager:
         # Pre-populate road with initial lively traffic, pedestrians, and cows
         self._prepopulate_world(0.0)
 
+    def set_traffic_density(self, density: float, player_y: float = None):
+        """Sets the traffic density slider (0.1 to 1.0) and actively adjusts vehicle count on the road."""
+        self.traffic_density = max(0.1, min(1.0, float(density)))
+        py = player_y if player_y is not None else self.last_player_y
+        self._reconcile_traffic_population(py)
+
+    def _is_spawn_slot_clear(self, tx: float, ty: float, vtype: str, player_y: float = None) -> bool:
+        """Checks if candidate spawn slot is clear of player, other vehicles, potholes, and cows."""
+        v_w, v_len = TrafficVehicle.TRAFFIC_VEHICLE_DIMS.get(vtype, (28, 50))
+
+        # Check player vehicle headway/clearance
+        if player_y is not None and abs(ty - player_y) < 135.0:
+            return False
+
+        # Check against existing traffic
+        for other in self.traffic:
+            lat_dist = abs(other.x - tx)
+            min_lat = (v_w + other.width) * 0.5 + 8.0
+            if lat_dist < min_lat:
+                # Same lane / overlapping corridor: require safe longitudinal headway
+                if abs(other.y - ty) < (v_len + other.length) * 0.5 + 35.0:
+                    return False
+
+        # Check against potholes (don't spawn directly in crater)
+        for p in self.potholes:
+            if abs(p.y - ty) < (v_len * 0.5 + p.ry + 15.0) and abs(p.x - tx) < (v_w * 0.5 + p.rx + 12.0):
+                return False
+
+        # Check against cows (don't spawn directly on top of herd)
+        for cow in self.cows:
+            if abs(cow.y - ty) < (v_len * 0.5 + cow.length * 0.5 + 25.0) and abs(cow.x - tx) < (v_w * 0.5 + cow.width * 0.5 + 15.0):
+                return False
+
+        return True
+
+    def _reconcile_traffic_population(self, player_y: float):
+        """Actively reconciles the traffic count to match the current traffic_density target."""
+        target_count = int(round(5 + self.traffic_density * 27))
+
+        # 1. If too many vehicles (density reduced), trim furthest vehicles from player first
+        if len(self.traffic) > target_count:
+            self.traffic.sort(key=lambda t: abs(t.y - player_y), reverse=True)
+            self.traffic = self.traffic[len(self.traffic) - target_count:]
+            return
+
+        # 2. If too few vehicles (density increased), inject into available open slots along road
+        if len(self.traffic) < target_count:
+            candidate_ys = []
+            cy = player_y - 140.0
+            while cy > player_y - 1500.0:
+                candidate_ys.append(cy)
+                cy -= random.uniform(35.0, 60.0)
+
+            cy_rear = player_y + 130.0
+            while cy_rear < player_y + 320.0:
+                candidate_ys.append(cy_rear)
+                cy_rear += random.uniform(45.0, 75.0)
+
+            random.shuffle(candidate_ys)
+
+            for py_pos in candidate_ys:
+                if len(self.traffic) >= target_count:
+                    break
+
+                left, right, cx, rw = self.road.get_road_edges(py_pos)
+                lanes, _ = self.road.get_virtual_lanes(py_pos)
+
+                vtype = random.choices(
+                    ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
+                    weights=[0.24, 0.18, 0.28, 0.18, 0.12]
+                )[0]
+
+                lane_order = list(range(len(lanes)))
+                random.shuffle(lane_order)
+                for l_idx in lane_order:
+                    spd, off, lane_idx, jitter = self._get_vehicle_spawn_params(vtype, rw, py_pos, target_lane=l_idx)
+                    tx = cx + off
+                    if self._is_spawn_slot_clear(tx, py_pos, vtype, player_y):
+                        self.traffic.append(TrafficVehicle(tx, py_pos, vtype, spd, off, lane_idx, jitter))
+                        break
+
     def _prepopulate_world(self, start_y: float):
         """Spawns an initial distribution of vehicles, pedestrians, and cows ahead of the player."""
-        # Pre-populate 11 traffic vehicles across the road ahead
+        target_count = int(round(5 + self.traffic_density * 27))
         curr_y = start_y - 140.0
-        for _ in range(11):
-            curr_y -= random.uniform(85.0, 160.0)
+        for _ in range(target_count):
+            curr_y -= random.uniform(70.0, 130.0)
             left, right, cx, rw = self.road.get_road_edges(curr_y)
             vtype = random.choices(
                 ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
                 weights=[0.24, 0.18, 0.28, 0.18, 0.12]
             )[0]
-            spd, off = self._get_vehicle_spawn_params(vtype, rw)
-            self.traffic.append(TrafficVehicle(cx + off, curr_y, vtype, spd, off))
+            spd, off, lane_idx, jitter = self._get_vehicle_spawn_params(vtype, rw, curr_y)
+            tx = cx + off
+            if self._is_spawn_slot_clear(tx, curr_y, vtype):
+                self.traffic.append(TrafficVehicle(tx, curr_y, vtype, spd, off, lane_idx, jitter))
+
+        self.next_traffic_y = curr_y - random.uniform(70.0, 130.0)
 
         # Pre-populate 5 pedestrians
         ped_y = start_y - 180.0
@@ -927,23 +1431,30 @@ class ObstacleManager:
         self._spawn_cow_herd(cow_y, herd_id=1)
         self._spawn_cow_herd(cow_y - 500.0, herd_id=2)
 
-    def _get_vehicle_spawn_params(self, vtype: str, rw: float):
-        if vtype == 'TRUCK':
-            speed = random.uniform(80.0, 105.0)
-            offset = random.choice([-rw * 0.18, rw * 0.16])
-        elif vtype == 'BUS':
-            speed = random.uniform(90.0, 115.0)
-            offset = random.choice([-rw * 0.20, 0.0])
+    def _get_vehicle_spawn_params(self, vtype: str, rw: float, y: float = 0.0, target_lane: int = None):
+        lanes, lane_w = self.road.get_virtual_lanes(y)
+        num_lanes = len(lanes)
+        if vtype in ('TRUCK', 'BUS'):
+            speed = random.uniform(80.0, 105.0) if vtype == 'TRUCK' else random.uniform(90.0, 115.0)
+            lane_idx = target_lane if target_lane is not None else (0 if random.random() < 0.65 else (1 if num_lanes > 2 else 0))
+            jitter = random.uniform(-lane_w * 0.08, lane_w * 0.08)
         elif vtype == 'AUTO':
             speed = random.uniform(96.0, 124.0)
-            offset = random.choice([-rw * 0.26, -rw * 0.10, rw * 0.20])
+            lane_idx = target_lane if target_lane is not None else (0 if random.random() < 0.55 else min(1, num_lanes - 1))
+            jitter = random.uniform(-lane_w * 0.12, lane_w * 0.12)
         elif vtype == 'BIKE':
             speed = random.uniform(130.0, 170.0)
-            offset = random.uniform(-rw * 0.28, rw * 0.28)
+            lane_idx = target_lane if target_lane is not None else random.randrange(num_lanes)
+            jitter = random.uniform(-lane_w * 0.18, lane_w * 0.18)
         else: # CAR
             speed = random.uniform(115.0, 150.0)
-            offset = random.choice([-rw * 0.22, 0.0, rw * 0.22])
-        return speed, offset
+            lane_idx = target_lane if target_lane is not None else random.randrange(num_lanes)
+            jitter = random.uniform(-lane_w * 0.10, lane_w * 0.10)
+
+        lane_idx = min(max(0, lane_idx), num_lanes - 1)
+        target_x = lanes[lane_idx] + jitter
+        offset = target_x - self.road.get_road_center(y)
+        return speed, offset, lane_idx, jitter
 
     def _spawn_cow_herd(self, base_y: float, herd_id: int):
         herd_size = random.choices([1, 2, 3, 4], weights=[0.25, 0.38, 0.24, 0.13])[0]
@@ -974,6 +1485,8 @@ class ObstacleManager:
             player_y = float(player_ref)
             player_car = None
 
+        self.last_player_y = player_y
+
         # Update dynamic traffic
         for veh in self.traffic:
             veh.update(dt, self.road, self.traffic, player_car, self.pedestrians, self.cows)
@@ -986,7 +1499,7 @@ class ObstacleManager:
         for cow in self.cows:
             cow.update(dt, self.road, self.traffic, player_car)
 
-        spawn_horizon = player_y - 1300
+        spawn_horizon = player_y - 1400
 
         # 1. Potholes
         while self.next_pothole_y > spawn_horizon:
@@ -1012,30 +1525,40 @@ class ObstacleManager:
             self.next_pothole_y -= random.uniform(260.0, 580.0)
 
         # 2. Dynamic Traffic (Scales strongly with traffic_density slider)
-        # Quota: 8 at min density, 18 at medium (0.5), up to 28 at rush hour (1.0)
-        max_active_traffic = int(7 + self.traffic_density * 21)
+        target_count = int(round(5 + self.traffic_density * 27))
 
-        # Ensure spawn point does not lag behind player
-        if self.next_traffic_y > player_y - 450:
-            self.next_traffic_y = player_y - 550
+        if len(self.traffic) < target_count:
+            attempts = 0
+            while self.next_traffic_y > spawn_horizon and len(self.traffic) < target_count and attempts < 15:
+                attempts += 1
+                ty = self.next_traffic_y
+                left, right, cx, rw = self.road.get_road_edges(ty)
 
-        while self.next_traffic_y > spawn_horizon and len(self.traffic) < max_active_traffic:
-            ty = self.next_traffic_y
-            left, right, cx, rw = self.road.get_road_edges(ty)
+                vtype = random.choices(
+                    ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
+                    weights=[0.24, 0.18, 0.28, 0.18, 0.12]
+                )[0]
 
-            vtype = random.choices(
-                ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
-                weights=[0.24, 0.18, 0.28, 0.18, 0.12]
-            )[0]
+                spd, off, lane_idx, jitter = self._get_vehicle_spawn_params(vtype, rw, ty)
+                tx = cx + off
 
-            spd, off = self._get_vehicle_spawn_params(vtype, rw)
-            tx = cx + off
-            self.traffic.append(TrafficVehicle(tx, ty, vtype, spd, off))
+                if self._is_spawn_slot_clear(tx, ty, vtype, player_y):
+                    self.traffic.append(TrafficVehicle(tx, ty, vtype, spd, off, lane_idx, jitter))
+                    min_inv = 60.0 + (1.0 - self.traffic_density) * 80.0
+                    max_inv = 100.0 + (1.0 - self.traffic_density) * 140.0
+                    self.next_traffic_y -= random.uniform(min_inv, max_inv)
+                else:
+                    self.next_traffic_y -= random.uniform(35.0, 65.0)
 
-            # Intervals scale dynamically with slider
-            min_inv = 50.0 + (1.0 - self.traffic_density) * 140.0
-            max_inv = 95.0 + (1.0 - self.traffic_density) * 230.0
-            self.next_traffic_y -= random.uniform(min_inv, max_inv)
+            # If still below target count, immediately reconcile
+            if len(self.traffic) < target_count:
+                self._reconcile_traffic_population(player_y)
+
+        # Ensure spawn horizon cursor tracks properly with player
+        if self.next_traffic_y > player_y - 650:
+            self.next_traffic_y = player_y - 850
+        elif self.next_traffic_y < spawn_horizon - 350:
+            self.next_traffic_y = spawn_horizon
 
         # 3. Independent Pedestrian Quota (Not counted as traffic)
         if self.next_pedestrian_y > player_y - 400:
@@ -1112,4 +1635,8 @@ class ObstacleManager:
         for ped in self.pedestrians:
             ped.draw(surface, camera_y, show_hitbox=show_hitbox)
         for t in self.traffic:
-            t.draw(surface, camera_y, show_radar=show_radar, show_hitbox=show_hitbox)
+            t.draw(surface, camera_y)
+
+    def draw_traffic_vectors(self, surface: pygame.Surface, camera_y: float):
+        for t in self.traffic:
+            t.draw_direction_vector(surface, camera_y, self.road)
