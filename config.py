@@ -3,10 +3,10 @@ Simulation configuration and constants.
 """
 
 # Screen & Display
-SCREEN_WIDTH = 1260
-SCREEN_HEIGHT = 760
+SCREEN_WIDTH = 1440
+SCREEN_HEIGHT = 860
 FPS = 60
-TITLE = "Indian Highway Autonomous Driving (A* Pathfinding)"
+TITLE = "Autonomous(A*) Driving on Indian Roads"
 
 # Colors (RGB)
 COLOR_BG_GRASS = (46, 89, 44)         # Dry lush roadside greenery / patchy ground

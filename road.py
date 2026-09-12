@@ -14,8 +14,8 @@ from config import (
 
 class InfiniteRoad:
     def __init__(self):
-        # Base road parameters (centered in the driving viewport [0, 880])
-        self.base_cx = 440.0
+        # Base road parameters (centered in the driving viewport)
+        self.base_cx = (SCREEN_WIDTH - 380.0) / 2.0
         
         # Procedural patches cache (indexed by chunk)
         self.chunk_size = 600

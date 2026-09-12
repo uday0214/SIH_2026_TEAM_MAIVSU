@@ -307,11 +307,12 @@ class IndianHighwaySimulation:
         ctrl_text = "[TAB] Dashboard  |  [D] A* Debug  |  [H] Radar  |  [A] Auto Speed  |  [ [ / ] ] Density  |  [SPACE] Pause  |  [R] Reset"
         t_ctrl = self.font_small.render(ctrl_text, True, (210, 225, 240))
         ctrl_surf.blit(t_ctrl, (14, 10))
-        self.screen.blit(ctrl_surf, (40, SCREEN_HEIGHT - 44))
+        ctrl_x = max(20, int(self.road.base_cx - ctrl_w // 2))
+        self.screen.blit(ctrl_surf, (ctrl_x, SCREEN_HEIGHT - 44))
 
         if self.paused:
             pause_surf = self.font_large.render("-- SIMULATION PAUSED --", True, (255, 220, 40))
-            px = 440 - pause_surf.get_width() // 2
+            px = int(self.road.base_cx - pause_surf.get_width() // 2)
             py = 35
             self.screen.blit(pause_surf, (px, py))
 
