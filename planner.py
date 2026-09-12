@@ -10,7 +10,7 @@ from typing import List, Tuple, Optional, Set
 from config import (
     PLANNER_CELL_SIZE, PLANNER_LOOKAHEAD_DIST,
     SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN,
-    PLAYER_WIDTH
+    PLAYER_WIDTH, POTHOLE_OBSTACLE_SPEED_THRESHOLD
 )
 
 class GridNode:
@@ -138,7 +138,9 @@ class AStarPlanner:
         for pred_x, pred_y, t in predicted_traffic:
             dy = car_y - pred_y
             dx = abs(car_x - pred_x)
-            if 0.0 < dy < 185.0 and dx < (car_half_w + t.width * 0.5 + 8.0):
+            vtype = getattr(t, 'vtype', 'CAR')
+            margin_w = 20.0 if vtype in ('TRUCK', 'BUS') else (12.0 if vtype == 'CAR' else (8.0 if vtype == 'AUTO' else 5.0))
+            if 0.0 < dy < 185.0 and dx < (car_half_w + t.width * 0.5 + margin_w):
                 room_available_ahead = False
                 break
 
@@ -158,7 +160,7 @@ class AStarPlanner:
                     room_available_ahead = False
                     break
 
-        if room_available_ahead and car_speed > 110.0:
+        if room_available_ahead and car_speed > POTHOLE_OBSTACLE_SPEED_THRESHOLD:
             for p in potholes:
                 dy = car_y - p.y
                 dx = abs(car_x - p.x)
@@ -176,7 +178,7 @@ class AStarPlanner:
 
         goal_wx, goal_wy = grid_to_world(goal_col, goal_row)
 
-        obstacle_cells = []
+        obstacle_cells = set()
 
         def compute_cell_cost(c: int, r: int) -> float:
             wx, wy = grid_to_world(c, r)
@@ -207,31 +209,71 @@ class AStarPlanner:
                 if dist_from_our_lane > lane_w * 0.32:
                     penalty += 85.0 + (dist_from_our_lane - lane_w * 0.32) * 12.0
 
-            # 1. Potholes (Penalty scales with speed: +40% at high speed, -10% at crawl speed)
+            # 1. Potholes:
+            # At speeds > 6-7 km/h (~23.5 px/s), all potholes (bigger and smaller) are treated as Pure Obstacles
+            # with infinite cost (drawing reddish obstacle boxes in debug).
+            # Below this threshold, vehicles crawl across with finite penalty.
             for p in potholes:
                 dx = wx - p.x
                 dy = wy - p.y
                 dist_sq = dx * dx + dy * dy
                 safe_r = p.effective_radius + SAFETY_MARGIN_POTHOLE
-                if dist_sq <= (safe_r * safe_r):
-                    dist = math.sqrt(dist_sq)
-                    base_cost = 260.0 + (safe_r - dist) * 18.0
-                    penalty += base_cost * speed_pothole_factor
-                elif dist_sq <= ((safe_r + 26) ** 2):
-                    dist = math.sqrt(dist_sq)
-                    base_cost = (safe_r + 26 - dist) * 12.0
-                    penalty += base_cost * speed_pothole_factor
+                if car_speed > POTHOLE_OBSTACLE_SPEED_THRESHOLD:
+                    if dist_sq <= (safe_r * safe_r):
+                        return float('inf')  # Impassable pure obstacle (reddish box in debug view)
+                    elif dist_sq <= ((safe_r + 20.0) ** 2):
+                        dist = math.sqrt(dist_sq)
+                        base_cost = (safe_r + 20.0 - dist) * 14.0
+                        penalty += base_cost * speed_pothole_factor
+                else:
+                    # Crawling speed (<= 6-7 km/h): permitted to crawl across with finite penalty
+                    if dist_sq <= (safe_r * safe_r):
+                        dist = math.sqrt(dist_sq)
+                        base_cost = 95.0 + (safe_r - dist) * 8.0
+                        penalty += base_cost * speed_pothole_factor
+                    elif dist_sq <= ((safe_r + 16.0) ** 2):
+                        dist = math.sqrt(dist_sq)
+                        base_cost = (safe_r + 16.0 - dist) * 5.0
+                        penalty += base_cost * speed_pothole_factor
 
-            # 2. Dynamic Traffic Vehicles
+            # 2. Dynamic Traffic Vehicles (Pure Obstacle Hitbox + Dynamic Clearance Zones)
             for pred_x, pred_y, t in predicted_traffic:
                 dx = abs(wx - pred_x)
                 dy = abs(wy - pred_y)
-                safe_w = (t.width / 2.0) + SAFETY_MARGIN_CAR + 4
-                safe_l = (t.length / 2.0) + SAFETY_MARGIN_CAR + 8
-                if dx < safe_w and dy < safe_l:
-                    return float('inf')
-                elif dx < safe_w + 24 and dy < safe_l + 30:
-                    penalty += 80.0 + (safe_w + 24 - dx) * 5.0 + (safe_l + 30 - dy) * 4.0
+                vtype = getattr(t, 'vtype', 'CAR')
+                half_w = t.width * 0.5
+                half_l = t.length * 0.5
+
+                # Dynamic calculation of impassable zone clearance:
+                # - TRUCK / BUS (Bigger vehicles): maintain full distance currently maintained
+                # - CAR (Standard): moderate clearance
+                # - AUTO (Smaller): closer clearance
+                # - BIKE (Two-wheeler): tightest clearance, allowing car to navigate closer
+                if vtype in ('TRUCK', 'BUS'):
+                    margin_w = SAFETY_MARGIN_CAR + 4.0   # 22.0 px
+                    margin_l = SAFETY_MARGIN_CAR + 8.0   # 26.0 px
+                    caution_buf = 24.0
+                elif vtype == 'CAR':
+                    margin_w = 13.0
+                    margin_l = 16.0
+                    caution_buf = 18.0
+                elif vtype == 'AUTO':
+                    margin_w = 8.0
+                    margin_l = 10.0
+                    caution_buf = 14.0
+                else:  # 'BIKE'
+                    margin_w = 5.0
+                    margin_l = 7.0
+                    caution_buf = 10.0
+
+                impassable_w = half_w + margin_w
+                impassable_l = half_l + margin_l
+
+                # Hitbox + dynamic clearance zone is a Pure Obstacle:
+                if dx < impassable_w and dy < impassable_l:
+                    return float('inf')  # Pure obstacle / Impassable zone (reddish boxes in debug)
+                elif dx < (impassable_w + caution_buf) and dy < (impassable_l + caution_buf + 6.0):
+                    penalty += 70.0 + (impassable_w + caution_buf - dx) * 4.5 + (impassable_l + caution_buf + 6.0 - dy) * 4.0
 
             # 3. Pedestrians
             for pred_px, pred_py, ped in predicted_pedestrians:
@@ -340,7 +382,7 @@ class AStarPlanner:
 
                 cell_penalty = compute_cell_cost(nc, nr)
                 if math.isinf(cell_penalty):
-                    obstacle_cells.append(grid_to_world(nc, nr))
+                    obstacle_cells.add(grid_to_world(nc, nr))
                     continue
 
                 neighbor = get_node(nc, nr)
@@ -381,7 +423,7 @@ class AStarPlanner:
 
         self.nodes_explored_count = len(closed_set)
         self.last_explored_cells = explored_coords[::3]
-        self.last_obstacle_cells = obstacle_cells[::2]
+        self.last_obstacle_cells = list(obstacle_cells)
 
         raw_path = []
         curr = best_node

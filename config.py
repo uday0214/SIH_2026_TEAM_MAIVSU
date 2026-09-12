@@ -62,3 +62,11 @@ PEDESTRIAN_SPAWN_INTERVAL = (140, 310) # Vertical distance between pedestrians
 MAX_TRAFFIC_AHEAD = 7
 MAX_POTHOLES_AHEAD = 12
 MAX_PEDESTRIANS_AHEAD = 8
+
+# Pothole Obstacle Speed Threshold (px/s)
+# At speeds > 6-7 km/h (~23.5 px/s), all potholes are treated as pure obstacles with infinite cost.
+# Below this threshold, vehicles crawl across with finite penalty.
+POTHOLE_OBSTACLE_SPEED_THRESHOLD = 23.5
+
+# Rest Acceleration Reduction (20% reduction when accelerating from rest)
+REST_ACCEL_FACTOR = 0.80

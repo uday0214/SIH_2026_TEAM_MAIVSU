@@ -6,9 +6,11 @@ following and complete stop-at-rest support), and Jaywalking Pedestrians.
 import math
 import random
 import pygame
+from typing import Tuple, Optional
 from config import (
     COLOR_POTHOLE_INNER, COLOR_POTHOLE_RIM,
-    SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN
+    SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN,
+    REST_ACCEL_FACTOR
 )
 
 class Pothole:
@@ -509,6 +511,82 @@ class Cow:
             pygame.draw.circle(surface, (20, 20, 20), (int(self.x), alert_y + 4), 1)
 
 
+VEHICLE_SIZE_RANK = {
+    'BIKE': 1,
+    'AUTO': 2,
+    'CAR': 3,
+    'PLAYER': 3,
+    'TRUCK': 4,
+    'BUS': 5
+}
+
+def negotiate_deadlock_priority(v_self, v_other, road) -> Tuple[bool, str]:
+    """
+    Evaluates deadlock right-of-way between two vehicles using principled rules:
+    1. Size hierarchy: Smaller, more agile vehicles move first (Bike < Auto < Car < Truck < Bus).
+    2. Future trajectory collision projection: Check future points along headings.
+    3. Available Escape Space: The vehicle with more lateral and forward maneuvering room moves first.
+    4. Deterministic spatial tie-breaker: Avoids symmetric lock.
+    """
+    type_self = getattr(v_self, 'vtype', 'CAR')
+    type_other = getattr(v_other, 'vtype', 'CAR')
+    rank_self = VEHICLE_SIZE_RANK.get(type_self, 3)
+    rank_other = VEHICLE_SIZE_RANK.get(type_other, 3)
+
+    # Principle a: Smaller vehicle moves first
+    if rank_self < rank_other:
+        return True, f"Smaller vehicle priority ({type_self} < {type_other})"
+    elif rank_self > rank_other:
+        return False, f"Yielding to smaller vehicle ({type_other} < {type_self})"
+
+    # Principle b: Check trajectory collision & Available Escape Space
+    h_self = getattr(v_self, 'heading', 0.0)
+    h_other = getattr(v_other, 'heading', 0.0)
+
+    # Direction vectors
+    d_self_x = math.sin(h_self)
+    d_self_y = -math.cos(h_self)
+    d_other_x = math.sin(h_other)
+    d_other_y = -math.cos(h_other)
+
+    # 1.2s future lookahead position
+    dt_pred = 1.2
+    fut_self_x = v_self.x + d_self_x * 24.0 * dt_pred
+    fut_self_y = v_self.y + d_self_y * 24.0 * dt_pred
+    fut_other_x = v_other.x + d_other_x * 24.0 * dt_pred
+    fut_other_y = v_other.y + d_other_y * 24.0 * dt_pred
+
+    current_dist = math.hypot(v_self.x - v_other.x, v_self.y - v_other.y)
+    future_dist = math.hypot(fut_self_x - fut_other_x, fut_self_y - fut_other_y)
+
+    # Calculate available maneuvering space for both vehicles
+    left_self, right_self, _, _ = road.get_road_edges(v_self.y)
+    left_other, right_other, _, _ = road.get_road_edges(v_other.y)
+
+    # Free lateral escape space away from the other vehicle
+    if v_other.x >= v_self.x:
+        lat_space_self = max(0.0, v_self.x - left_self)
+        lat_space_other = max(0.0, right_other - v_other.x)
+    else:
+        lat_space_self = max(0.0, right_self - v_self.x)
+        lat_space_other = max(0.0, v_other.x - left_other)
+
+    # Total clearance score
+    total_space_self = lat_space_self + (v_other.y - v_self.y if v_self.y < v_other.y else 0.0)
+    total_space_other = lat_space_other + (v_self.y - v_other.y if v_other.y < v_self.y else 0.0)
+
+    if abs(total_space_self - total_space_other) > 12.0:
+        if total_space_self > total_space_other:
+            return True, "More available escape corridor space ahead"
+        else:
+            return False, "Holding position; other vehicle has more open space to maneuver"
+
+    # Principle d: Deterministic spatial tie-breaker (vehicle further downroad moves first)
+    if v_self.y < v_other.y:
+        return True, "Downroad position priority"
+    return False, "Holding for leading downroad vehicle"
+
+
 class TrafficVehicle:
     """
     Dynamic traffic vehicle with realistic vehicular kinematics:
@@ -603,7 +681,7 @@ class TrafficVehicle:
         # 1. Autonomous collision avoidance & speed control (supports stopping to 0)
         desired_speed = self.cruising_speed
 
-        # A. Check vehicles ahead
+        # A. Check vehicles ahead & Deadlock Negotiation
         if all_traffic:
             for other in all_traffic:
                 if other is self:
@@ -613,19 +691,43 @@ class TrafficVehicle:
                 if 0 < dy < 155 and dx < (self.width + other.width) * 0.65:
                     min_gap = (self.length + other.length) * 0.5 + 32.0
                     if dy < min_gap:
-                        desired_speed = 0.0 # Full stop at rest to prevent any collision!
+                        # Check for deadlock (both vehicles near standstill)
+                        if self.speed < 25.0 and other.speed < 25.0:
+                            has_priority, _ = negotiate_deadlock_priority(self, other, road)
+                            if has_priority:
+                                desired_speed = max(desired_speed, 24.0)  # Creep forward out of deadlock
+                            else:
+                                desired_speed = 0.0  # Yield to higher priority / smaller vehicle
+                                # Lateral yield nudge towards road shoulder to open corridor
+                                if other.x > self.x:
+                                    self.sub_lane_jitter = max(-24.0, self.sub_lane_jitter - 12.0 * dt)
+                                else:
+                                    self.sub_lane_jitter = min(24.0, self.sub_lane_jitter + 12.0 * dt)
+                        else:
+                            desired_speed = 0.0 # Full stop at rest to prevent collision
                     else:
                         gap_factor = max(0.0, min(1.0, (dy - min_gap) / 65.0))
                         desired_speed = min(desired_speed, other.speed * gap_factor)
 
-        # B. Check player car ahead
+        # B. Check player car ahead & Deadlock Negotiation
         if player_car:
             dy = self.y - player_car.y
             dx = abs(self.x - player_car.x)
             if 0 < dy < 155 and dx < (self.width + player_car.width) * 0.65:
                 min_gap = (self.length + player_car.length) * 0.5 + 32.0
                 if dy < min_gap:
-                    desired_speed = 0.0 # Full stop behind player car
+                    if self.speed < 25.0 and player_car.speed < 25.0:
+                        has_priority, _ = negotiate_deadlock_priority(self, player_car, road)
+                        if has_priority:
+                            desired_speed = max(desired_speed, 24.0)
+                        else:
+                            desired_speed = 0.0
+                            if player_car.x > self.x:
+                                self.sub_lane_jitter = max(-24.0, self.sub_lane_jitter - 12.0 * dt)
+                            else:
+                                self.sub_lane_jitter = min(24.0, self.sub_lane_jitter + 12.0 * dt)
+                    else:
+                        desired_speed = 0.0 # Full stop behind player car
                 else:
                     gap_factor = max(0.0, min(1.0, (dy - min_gap) / 65.0))
                     desired_speed = min(desired_speed, player_car.speed * gap_factor)
@@ -664,12 +766,14 @@ class TrafficVehicle:
                     elif dy < 125.0:
                         desired_speed = min(desired_speed, 32.0)
 
-        # E. Execute acceleration / braking
+        # E. Execute acceleration / braking (Reduced acceleration from rest by 20%)
         if desired_speed < self.speed:
             self.speed = max(desired_speed, self.speed - self.decel * dt)
             self.is_braking = True
         else:
-            self.speed = min(desired_speed, self.speed + self.accel * dt)
+            rest_scale = REST_ACCEL_FACTOR if self.speed < 40.0 else (REST_ACCEL_FACTOR + (1.0 - REST_ACCEL_FACTOR) * min(1.0, (self.speed - 40.0) / 40.0))
+            effective_accel = self.accel * rest_scale
+            self.speed = min(desired_speed, self.speed + effective_accel * dt)
             self.is_braking = False
 
         self.speed = max(0.0, self.speed) # Can come to complete rest

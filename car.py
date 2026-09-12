@@ -10,8 +10,9 @@ from config import (
     PLAYER_WIDTH, PLAYER_LENGTH,
     PLAYER_BASE_SPEED, PLAYER_MAX_SPEED, PLAYER_MIN_SPEED,
     PLAYER_ACCEL, PLAYER_DECEL, PLAYER_STEER_SPEED, MAX_STEER_DEVIATION,
-    PLANNER_REPLAN_INTERVAL
+    PLANNER_REPLAN_INTERVAL, POTHOLE_OBSTACLE_SPEED_THRESHOLD, REST_ACCEL_FACTOR
 )
+from obstacles import negotiate_deadlock_priority
 
 class CircularDiscSensor:
     """
@@ -68,23 +69,28 @@ class CircularDiscSensor:
         max_y = car.y + self.r_outer + 25.0
         p_nearby, t_nearby, ped_nearby, cow_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
 
-        # Collect candidate proximity contact points
+        # Collect candidate proximity contact points with dynamic vehicle clearance & pothole obstacle status
         contacts = []
 
         for t in t_nearby:
-            contacts.append((t.x, t.y, f"TRAFFIC_{t.vtype}", t.width * 0.45))
+            vtype = getattr(t, 'vtype', 'CAR')
+            t_margin = 20.0 if vtype in ('TRUCK', 'BUS') else (13.0 if vtype == 'CAR' else (8.0 if vtype == 'AUTO' else 5.0))
+            contacts.append((t.x, t.y, f"TRAFFIC_{vtype}", t.width * 0.5 + t_margin, t))
         for ped in ped_nearby:
-            contacts.append((ped.x, ped.y, 'PEDESTRIAN', ped.radius))
+            contacts.append((ped.x, ped.y, 'PEDESTRIAN', ped.radius, ped))
         for cow in cow_nearby:
-            contacts.append((cow.x, cow.y, 'COW', cow.radius))
+            contacts.append((cow.x, cow.y, 'COW', cow.radius, cow))
         for p in p_nearby:
-            contacts.append((p.x, p.y, 'POTHOLE', p.effective_radius))
+            # Potholes above crawl threshold (> 6-7 km/h, ~23.5 px/s) are pure obstacles in radar
+            p_is_obstacle = (car.speed > POTHOLE_OBSTACLE_SPEED_THRESHOLD)
+            p_type = 'POTHOLE_OBSTACLE' if p_is_obstacle else 'POTHOLE_CRAWL'
+            contacts.append((p.x, p.y, p_type, p.effective_radius + 4.0, p))
 
         # Road boundaries
         for sample_y in [car.y - 75.0, car.y, car.y + 75.0]:
             left, right, _, _ = road.get_road_edges(sample_y)
-            contacts.append((left, sample_y, 'ROAD_EDGE', 6.0))
-            contacts.append((right, sample_y, 'ROAD_EDGE', 6.0))
+            contacts.append((left, sample_y, 'ROAD_EDGE', 6.0, None))
+            contacts.append((right, sample_y, 'ROAD_EDGE', 6.0, None))
 
         nearest_d = self.r_outer
         nearest_t = 'CLEAR'
@@ -92,7 +98,7 @@ class CircularDiscSensor:
         sin_h = math.sin(car.heading)
         cos_h = math.cos(car.heading)
 
-        for ox, oy, otype, rad in contacts:
+        for ox, oy, otype, rad, obj_ref in contacts:
             dx = ox - car.x
             dy = oy - car.y
             raw_dist = math.hypot(dx, dy)
@@ -132,8 +138,9 @@ class CircularDiscSensor:
                     nearest_t = otype
 
                 # Directional Red Zone Analysis:
-                # Projects obstacle location onto vehicle heading and movement axis
-                if eff_dist < self.r_inner and otype not in ['CLEAR', 'POTHOLE', 'ROAD_EDGE']:
+                # Projects obstacle location onto vehicle heading and movement axis.
+                # Potholes above crawl speed are now included as critical obstacles!
+                if eff_dist < self.r_inner and otype not in ['CLEAR', 'POTHOLE_CRAWL', 'ROAD_EDGE']:
                     # d_fwd: positive in front of vehicle heading, negative behind
                     # d_lat: positive to right of vehicle heading, negative to left
                     d_fwd = dx * sin_h - dy * cos_h
@@ -157,7 +164,8 @@ class CircularDiscSensor:
                         'is_forward_hazard': is_forward_hazard,
                         'is_rear_hazard': is_rear_hazard,
                         'is_flank_hazard': is_flank_hazard,
-                        'point': (ox, oy)
+                        'point': (ox, oy),
+                        'ref': obj_ref
                     }
                     self.red_zone_tracks.append(track_info)
 
@@ -626,29 +634,57 @@ class AutonomousCar:
                         effective_desired = min(effective_desired, 45.0)
                 break
 
-        # Pothole crossing: Never stop completely for potholes; cross at lower cautious speed
+        # Pothole crossing: At speeds > 6-7 km/h, unavoidable potholes require decelerating to crawl speed (<= 22 px/s)
         for p in p_nearby:
             p_dy = self.y - p.y
             p_dx = abs(self.x - p.x)
-            if 0 < p_dy < 85 and p_dx < (p.effective_radius + self.width * 0.45):
-                cautious_spd = 78.0 # ~22 km/h
-                if effective_desired > cautious_spd:
-                    effective_desired = cautious_spd
+            if 0 < p_dy < 95 and p_dx < (p.effective_radius + self.width * 0.5 + 4.0):
+                crawl_spd = 22.0  # <= 6-7 km/h (~6.2 km/h)
+                if effective_desired > crawl_spd:
+                    effective_desired = crawl_spd
                     if self.auto_mode:
-                        self.auto_speed_reason = "CROSSING POTHOLE (SLOW)"
-                    self.add_thought("Approaching unavoidable pothole; crossing at reduced speed.", "DECISION")
+                        self.auto_speed_reason = "POTHOLE CRAWL (<=7 km/h)"
+                    self.add_thought("Approaching unavoidable pothole crater; reducing to <=7 km/h crawl.", "DECISION")
                 break
 
-        # Circular Disc Sensor Threat Assessment & Deadlock Prevention:
-        # Analyzes where the obstacle in the red zone is relative to our direction of travel.
+        # Circular Disc Sensor Threat Assessment & Inter-Vehicle Deadlock Negotiation:
+        # Analyzes obstacle location, threat type, and performs principled deadlock resolution.
         if self.sensor.critical_breached and self.sensor.forward_hazard_present:
             info = self.sensor.forward_blocker_info
             threat_type = info['type'] if info else "OBSTACLE"
             sec = info['sector'] if info else "FRONT"
-            effective_desired = 0.0
-            if self.auto_mode:
-                self.auto_speed_reason = f"SENSOR STOP ({threat_type} {sec})"
-            self.add_thought(f"SENSOR DISC: Forward path blocked by {threat_type} in {sec}! Emergency stop.", "ALERT")
+            obj_ref = info.get('ref') if info else None
+
+            if threat_type == 'POTHOLE_OBSTACLE':
+                # Approaching a pothole obstacle at speed: decelerate to crawl threshold (<= 22 px/s)
+                effective_desired = min(effective_desired, 22.0)
+                if self.auto_mode:
+                    self.auto_speed_reason = "POTHOLE CRAWL (<=7 km/h)"
+                self.add_thought("SENSOR RED ZONE: Pothole obstacle in forward path; slowing to <=7 km/h crawl.", "WARN")
+            elif threat_type.startswith("TRAFFIC_") and obj_ref is not None:
+                # Inter-vehicle deadlock negotiation
+                if self.speed < 25.0 and getattr(obj_ref, 'speed', 0.0) < 25.0:
+                    has_priority, reason = negotiate_deadlock_priority(self, obj_ref, road)
+                    if has_priority:
+                        effective_desired = 26.0  # Creep forward out of deadlock
+                        if self.auto_mode:
+                            self.auto_speed_reason = f"DEADLOCK: {reason[:16]}"
+                        self.add_thought(f"DEADLOCK RESOLUTION: Priority acquired ({reason}); creeping forward to clear jam.", "DECISION")
+                    else:
+                        effective_desired = 0.0  # Yield to smaller/higher priority vehicle
+                        if self.auto_mode:
+                            self.auto_speed_reason = f"YIELD: {reason[:16]}"
+                        self.add_thought(f"DEADLOCK RESOLUTION: Yielding ({reason}); holding position for clearance.", "INFO")
+                else:
+                    effective_desired = 0.0
+                    if self.auto_mode:
+                        self.auto_speed_reason = f"SENSOR STOP ({threat_type} {sec})"
+                    self.add_thought(f"SENSOR DISC: Forward path blocked by {threat_type} in {sec}! Emergency stop.", "ALERT")
+            else:
+                effective_desired = 0.0
+                if self.auto_mode:
+                    self.auto_speed_reason = f"SENSOR STOP ({threat_type} {sec})"
+                self.add_thought(f"SENSOR DISC: Forward path blocked by {threat_type} in {sec}! Emergency stop.", "ALERT")
         elif self.sensor.rear_hazard_present:
             # Obstacle is BEHIND us in the rear red zone.
             # We must NOT stop, as stopping creates a deadlock or invites a rear-end collision!
@@ -673,7 +709,10 @@ class AutonomousCar:
             self.speed = max(effective_desired, self.speed - PLAYER_DECEL * dt)
             self.is_braking = True
         else:
-            self.speed = min(effective_desired, self.speed + PLAYER_ACCEL * dt)
+            # Acceleration from rest reduced by 20% to prevent rapid launch
+            rest_scale = REST_ACCEL_FACTOR if self.speed < 40.0 else (REST_ACCEL_FACTOR + (1.0 - REST_ACCEL_FACTOR) * min(1.0, (self.speed - 40.0) / 40.0))
+            effective_accel = PLAYER_ACCEL * rest_scale
+            self.speed = min(effective_desired, self.speed + effective_accel * dt)
             self.is_braking = False
 
         self.speed = max(0.0, self.speed) # Fully stop capable
