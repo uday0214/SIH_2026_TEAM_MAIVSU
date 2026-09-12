@@ -213,6 +213,16 @@ class IndianHighwaySimulation:
             if 0 <= osy <= SCREEN_HEIGHT:
                 pygame.draw.rect(debug_surf, COLOR_GRID_OBSTACLE, (int(ox - cell/2), int(osy - cell/2), cell, cell))
 
+        # Render Strategic Long-Range Corridor (Amber / Gold)
+        long_path = getattr(self.planner, 'last_long_path', [])
+        if len(long_path) >= 2:
+            long_pts = [(int(px), int(py - self.camera_y)) for px, py in long_path]
+            pygame.draw.lines(debug_surf, (255, 185, 45, 95), False, long_pts, 4)
+            for idx, pt in enumerate(long_pts):
+                if idx % 4 == 0 or idx == len(long_pts) - 1:
+                    pygame.draw.circle(debug_surf, (255, 205, 75, 160), pt, 3)
+
+        # Render Active Spliced Trajectory (Vivid Cyan & White Core)
         path = self.car.path
         if len(path) >= 2:
             screen_pts = [(int(px), int(py - self.camera_y)) for px, py in path]
@@ -235,7 +245,7 @@ class IndianHighwaySimulation:
 
     def draw_hud(self):
         """Top-left Telemetry Card."""
-        hud_w, hud_h = 390, 248
+        hud_w, hud_h = 410, 248
         hud_surf = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
         pygame.draw.rect(hud_surf, (14, 18, 24, 220), (0, 0, hud_w, hud_h), border_radius=10)
         pygame.draw.rect(hud_surf, (0, 180, 230, 120), (0, 0, hud_w, hud_h), width=2, border_radius=10)
@@ -250,14 +260,17 @@ class IndianHighwaySimulation:
         auto_str = f"AUTO: {self.car.auto_speed_reason}" if self.car.auto_mode else "MANUAL SPEED"
         auto_col = (80, 245, 160) if self.car.auto_mode else (255, 180, 80)
 
+        short_nodes = getattr(self.planner, 'short_range', None).nodes_explored_count if hasattr(self.planner, 'short_range') else 0
+        long_nodes = getattr(self.planner, 'long_range', None).nodes_explored_count if hasattr(self.planner, 'long_range') else 0
+
         lines = [
-            ("AUTONOMOUS NAVIGATOR (A*)", (0, 220, 255), self.font_large),
+            ("AUTONOMOUS DUAL A* NAVIGATOR", (0, 220, 255), self.font_large),
             (f"Speed: {speed_kmh} km/h (Target: {target_kmh})  |  FPS: {fps}", (255, 255, 255), self.font_medium),
             (f"Mode [A]: {auto_str}", auto_col, self.font_medium),
             (f"Road Width: {rw} px{rw_status}  |  Dist: {dist_m} m", (210, 225, 235), self.font_medium),
             (f"A* Debug [D]: {'ON' if self.show_debug else 'OFF'}  |  Radar [H]: {'ON' if self.show_radar else 'OFF'}",
              (0, 235, 255), self.font_medium),
-            (f"A* Nodes Explored: {self.planner.nodes_explored_count} cells", (255, 220, 80), self.font_medium),
+            (f"Dual A*: {self.planner.nodes_explored_count} nodes ({short_nodes} local | {long_nodes} global)", (255, 220, 80), self.font_medium),
             (f"Potholes: {self.obstacles.potholes_avoided} dodged | Hits: {self.car.pothole_bumps}",
              (120, 255, 140) if self.car.pothole_bumps == 0 else (255, 160, 80), self.font_medium),
             (f"Traffic: {self.obstacles.traffic_overtaken} overtaken | Hits: {self.car.collisions}",

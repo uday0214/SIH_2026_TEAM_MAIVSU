@@ -10,7 +10,8 @@ from config import (
     PLAYER_WIDTH, PLAYER_LENGTH,
     PLAYER_BASE_SPEED, PLAYER_MAX_SPEED, PLAYER_MIN_SPEED,
     PLAYER_ACCEL, PLAYER_DECEL, PLAYER_STEER_SPEED, MAX_STEER_DEVIATION,
-    PLANNER_REPLAN_INTERVAL, POTHOLE_OBSTACLE_SPEED_THRESHOLD, REST_ACCEL_FACTOR
+    PLANNER_REPLAN_INTERVAL, POTHOLE_OBSTACLE_SPEED_THRESHOLD, REST_ACCEL_FACTOR,
+    PLANNER_LONG_LOOKAHEAD
 )
 from obstacles import negotiate_deadlock_priority
 
@@ -338,6 +339,8 @@ class AutonomousCar:
 
         # A* Path tracking
         self.path: List[Tuple[float, float]] = []
+        self.long_path: List[Tuple[float, float]] = []
+        self.short_path: List[Tuple[float, float]] = []
         self.target_waypoint: Tuple[float, float] = (start_x, start_y - 60)
         self.replan_timer = 0.0
         self.sim_time = 0.0
@@ -402,7 +405,7 @@ class AutonomousCar:
 
         # 1. Periodic A* Replanning
         self.replan_timer += dt
-        min_y = self.y - 480
+        min_y = self.y - (PLANNER_LONG_LOOKAHEAD + 60.0)
         max_y = self.y + 60
         p_nearby, t_nearby, ped_nearby, cow_nearby = obstacles.get_obstacles_in_range(min_y, max_y)
 
@@ -412,6 +415,8 @@ class AutonomousCar:
         if self.replan_timer >= PLANNER_REPLAN_INTERVAL or not self.path:
             self.replan_timer = 0.0
             self.path = planner.plan_path(self.x, self.y, self.speed, p_nearby, t_nearby, ped_nearby, cow_nearby)
+            self.long_path = getattr(planner, 'last_long_path', [])
+            self.short_path = getattr(planner, 'last_short_path', [])
 
         # 2. Pure Pursuit Path Tracking with Realistic Steering Constraints
         # Lookahead distance scales smoothly to ensure gentle highway cornering

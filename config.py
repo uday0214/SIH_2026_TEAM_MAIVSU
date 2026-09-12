@@ -49,6 +49,8 @@ PLAYER_STEER_DAMPING = 0.88            # Inertial heading smoothing
 # A* Planner Parameters
 PLANNER_CELL_SIZE = 16                 # Grid resolution (pixels per cell)
 PLANNER_LOOKAHEAD_DIST = 380           # Planning horizon ahead of car (px)
+PLANNER_LONG_LOOKAHEAD = 500.0         # Strategic long-range corridor horizon (px)
+PLANNER_SHORT_LOOKAHEAD = 185.0        # Reactive short-range obstacle horizon (px)
 PLANNER_LATERAL_SPAN = 300             # Width of local search grid (px)
 PLANNER_REPLAN_INTERVAL = 0.08         # Replan frequency in seconds (12.5 Hz)
 SAFETY_MARGIN_CAR = 18                 # Buffer distance around vehicles
