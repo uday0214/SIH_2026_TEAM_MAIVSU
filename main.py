@@ -196,6 +196,17 @@ class IndianHighwaySimulation:
             if 0 <= esy <= SCREEN_HEIGHT:
                 pygame.draw.circle(debug_surf, COLOR_GRID_EXPLORED, (int(ex), int(esy)), 3)
 
+        # Draw virtual lane guidance markings in debug mode
+        step_y = 22
+        curr_y = float(self.camera_y)
+        end_y = float(self.camera_y + SCREEN_HEIGHT)
+        while curr_y <= end_y:
+            lanes, _ = self.road.get_virtual_lanes(curr_y)
+            esy = int(curr_y - self.camera_y)
+            for lx in lanes:
+                pygame.draw.circle(debug_surf, (0, 240, 180, 55), (int(lx), esy), 2)
+            curr_y += step_y
+
         cell = self.planner.cell_size
         for ox, oy in self.planner.last_obstacle_cells:
             osy = oy - self.camera_y

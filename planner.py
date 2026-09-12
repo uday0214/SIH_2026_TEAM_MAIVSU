@@ -9,7 +9,8 @@ import heapq
 from typing import List, Tuple, Optional, Set
 from config import (
     PLANNER_CELL_SIZE, PLANNER_LOOKAHEAD_DIST,
-    SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN
+    SAFETY_MARGIN_CAR, SAFETY_MARGIN_POTHOLE, SAFETY_MARGIN_PEDESTRIAN,
+    PLAYER_WIDTH
 )
 
 class GridNode:
@@ -83,10 +84,6 @@ class AStarPlanner:
             c = int(round((wx - cx) / step_d))
             return max(-max_cols, min(max_cols, c)), max(0, min(num_rows - 1, r))
 
-        start_col, start_row = world_to_grid(car_x, car_y)
-        goal_col = 0  # Road centerline ahead
-        goal_wx, goal_wy = grid_to_world(goal_col, goal_row)
-
         # Dynamic traffic projection
         predicted_traffic = []
         effective_car_spd = max(110.0, car_speed)
@@ -95,8 +92,16 @@ class AStarPlanner:
             if delta_y > -40:
                 t_arrival = max(0.0, delta_y / effective_car_spd)
                 pred_y = t.y - t.speed * t_arrival
-                pred_road_cx = self.road.get_road_center(pred_y)
-                pred_x = pred_road_cx + t.lateral_offset
+                if hasattr(t, 'lane_idx') and hasattr(t, 'sub_lane_jitter'):
+                    lanes_pred, _ = self.road.get_virtual_lanes(pred_y)
+                    if 0 <= t.lane_idx < len(lanes_pred):
+                        pred_x = lanes_pred[t.lane_idx] + t.sub_lane_jitter
+                    else:
+                        pred_road_cx = self.road.get_road_center(pred_y)
+                        pred_x = pred_road_cx + getattr(t, 'lateral_offset', 0.0)
+                else:
+                    pred_road_cx = self.road.get_road_center(pred_y)
+                    pred_x = pred_road_cx + getattr(t, 'lateral_offset', 0.0)
                 predicted_traffic.append((pred_x, pred_y, t))
             else:
                 predicted_traffic.append((t.x, t.y, t))
@@ -123,6 +128,54 @@ class AStarPlanner:
             ratio = (car_speed - 80.0) / (200.0 - 80.0)
             speed_pothole_factor = 0.90 + ratio * (1.40 - 0.90)
 
+        # Identify vehicle's current virtual lane and side of the road
+        car_lane_idx, car_lane_cx, car_lane_off = self.road.get_nearest_virtual_lane(car_x, car_y)
+        car_side = self.road.get_road_side(car_x, car_y)
+        car_half_w = PLAYER_WIDTH * 0.5
+
+        # Check if there is room available ahead in the vehicle's current lane/corridor
+        room_available_ahead = True
+        for pred_x, pred_y, t in predicted_traffic:
+            dy = car_y - pred_y
+            dx = abs(car_x - pred_x)
+            if 0.0 < dy < 185.0 and dx < (car_half_w + t.width * 0.5 + 8.0):
+                room_available_ahead = False
+                break
+
+        if room_available_ahead:
+            for pred_px, pred_py, ped in predicted_pedestrians:
+                dy = car_y - pred_py
+                dx = abs(car_x - pred_px)
+                if 0.0 < dy < 150.0 and dx < (car_half_w + ped.radius + 14.0):
+                    room_available_ahead = False
+                    break
+
+        if room_available_ahead:
+            for cow in cows:
+                dy = car_y - cow.y
+                dx = abs(car_x - cow.x)
+                if 0.0 < dy < 195.0 and dx < (car_half_w + cow.width * 0.5 + 16.0):
+                    room_available_ahead = False
+                    break
+
+        if room_available_ahead and car_speed > 110.0:
+            for p in potholes:
+                dy = car_y - p.y
+                dx = abs(car_x - p.x)
+                if 0.0 < dy < 130.0 and dx < (p.effective_radius + car_half_w + 4.0):
+                    room_available_ahead = False
+                    break
+
+        start_col, start_row = world_to_grid(car_x, car_y)
+        # When room is available ahead, the goal points directly straight ahead in the current virtual lane!
+        if room_available_ahead:
+            goal_col = int(round(car_lane_off / step_d))
+        else:
+            # Obstacle ahead in our lane: allow A* to aim for open overtaking lane
+            goal_col = 0
+
+        goal_wx, goal_wy = grid_to_world(goal_col, goal_row)
+
         obstacle_cells = []
 
         def compute_cell_cost(c: int, r: int) -> float:
@@ -135,9 +188,24 @@ class AStarPlanner:
                 off = self.road.get_offroad_penalty(wx, wy)
                 return 600.0 + off * 35.0
 
-            # Centerline attraction (stabilizes cruising smoothly down the road center)
-            center_dist = abs(c * step_d) / (rw * 0.5)
-            penalty = center_dist * 4.5
+            # Virtual Lane Guidance:
+            # Guide vehicle smoothly along virtual lane centers instead of hardcoding to centerline
+            lanes, lane_w = self.road.get_virtual_lanes(wy)
+            nearest_lane_idx, nearest_lane_cx, nearest_lane_off = self.road.get_nearest_virtual_lane(wx, wy)
+            dist_to_lane_center = abs(wx - nearest_lane_cx)
+            penalty = (dist_to_lane_center / (lane_w * 0.5)) * 6.0
+
+            # PENALTY FOR CUTTING TO OTHER SIDE OF ROAD WHEN ROOM AVAILABLE AHEAD:
+            if room_available_ahead:
+                cell_side = self.road.get_road_side(wx, wy)
+                # If moving across to the opposite side of the road (e.g. left side to right side):
+                if car_side != 'CENTER' and cell_side != 'CENTER' and cell_side != car_side:
+                    penalty += 480.0  # Heavy penalty prevents cutting to other side of road!
+
+                # Leaving current virtual lane when room is available ahead:
+                dist_from_our_lane = abs(wx - (cx + car_lane_off))
+                if dist_from_our_lane > lane_w * 0.32:
+                    penalty += 85.0 + (dist_from_our_lane - lane_w * 0.32) * 12.0
 
             # 1. Potholes (Penalty scales with speed: +40% at high speed, -10% at crawl speed)
             for p in potholes:
@@ -304,7 +372,9 @@ class AStarPlanner:
                 if tentative_g < neighbor.g:
                     neighbor.parent = current
                     neighbor.g = tentative_g
-                    neighbor.h = math.hypot(neighbor.x - goal_wx, neighbor.y - goal_wy) + abs(nc) * 4.0
+                    neighbor.h = math.hypot(neighbor.x - goal_wx, neighbor.y - goal_wy)
+                    if room_available_ahead:
+                        neighbor.h += abs(nc - goal_col) * 5.0
                     neighbor.f = neighbor.g + neighbor.h
                     tie_breaker += 1
                     heapq.heappush(open_set, (neighbor.f, tie_breaker, neighbor))

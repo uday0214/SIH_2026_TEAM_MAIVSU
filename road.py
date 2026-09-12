@@ -86,6 +86,65 @@ class InfiniteRoad:
             return (x - right)
         return 0.0
 
+    def get_virtual_lanes(self, world_y: float):
+        """
+        Returns list of virtual lane center x-coordinates and lane width at world_y.
+        Virtual lanes provide an underlying structural guidance grid for all vehicles.
+        In Indian traffic (driving on the left), the left side is the primary travel lane.
+        """
+        left, right, cx, rw = self.get_road_edges(world_y)
+        if rw >= 320.0:
+            # 3-lane structure on wide highway: Left Lane (0), Center Lane (1), Right Overtaking Lane (2)
+            lane_w = rw / 3.0
+            lanes = [
+                cx - rw * 0.28,  # Lane 0: Left primary lane
+                cx,              # Lane 1: Center passing corridor
+                cx + rw * 0.28   # Lane 2: Right overtaking lane
+            ]
+        else:
+            # 2-lane structure on standard/narrow road: Left driving lane (0), Right overtaking lane (1)
+            lane_w = rw / 2.0
+            lanes = [
+                cx - rw * 0.24,  # Lane 0: Left driving lane
+                cx + rw * 0.24   # Lane 1: Right overtaking lane
+            ]
+        return lanes, lane_w
+
+    def get_nearest_virtual_lane(self, x: float, world_y: float):
+        """
+        Returns (lane_index, lane_center_x, offset_from_road_center) for given position (x, world_y).
+        """
+        lanes, _ = self.get_virtual_lanes(world_y)
+        cx = self.get_road_center(world_y)
+        best_idx = 0
+        best_dist = abs(x - lanes[0])
+        for idx in range(1, len(lanes)):
+            d = abs(x - lanes[idx])
+            if d < best_dist:
+                best_dist = d
+                best_idx = idx
+        lane_cx = lanes[best_idx]
+        return best_idx, lane_cx, (lane_cx - cx)
+
+    def get_road_side(self, x: float, world_y: float) -> str:
+        """Returns 'LEFT' if vehicle is on left side of road, 'RIGHT' if on right side, 'CENTER' if near dividing line."""
+        cx = self.get_road_center(world_y)
+        delta = x - cx
+        if delta < -14.0:
+            return 'LEFT'
+        elif delta > 14.0:
+            return 'RIGHT'
+        return 'CENTER'
+
+    def is_cutting_to_other_side(self, from_x: float, to_x: float, world_y: float) -> bool:
+        """
+        Checks if a lateral transition crosses across the road centerline to the opposite side.
+        """
+        cx = self.get_road_center(world_y)
+        d_from = from_x - cx
+        d_to = to_x - cx
+        return (d_from * d_to < 0) and abs(d_to) > 14.0
+
     def _generate_chunk_patches(self, chunk_id: int):
         """Generates deterministic asphalt tar patches and roadside details."""
         if chunk_id in self.patches:

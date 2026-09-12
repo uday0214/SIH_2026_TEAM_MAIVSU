@@ -519,13 +519,16 @@ class TrafficVehicle:
     """
     TYPES = ['TRUCK', 'BUS', 'CAR', 'AUTO', 'BIKE']
 
-    def __init__(self, x: float, y: float, vtype: str, speed: float, lateral_offset: float = 0.0):
+    def __init__(self, x: float, y: float, vtype: str, speed: float, lateral_offset: float = 0.0,
+                 lane_idx: int = 0, sub_lane_jitter: float = 0.0):
         self.x = x
         self.y = y
         self.vtype = vtype
         self.cruising_speed = speed
         self.speed = speed
         self.lateral_offset = lateral_offset
+        self.lane_idx = lane_idx
+        self.sub_lane_jitter = sub_lane_jitter
         self.heading = 0.0
         self.angle_deg = 0.0
         self.hit = False
@@ -679,36 +682,42 @@ class TrafficVehicle:
         safe_left = left + self.width * 0.65 + 6.0
         safe_right = right - self.width * 0.65 - 6.0
 
+        lanes, lane_w = road.get_virtual_lanes(self.y)
+        num_lanes = len(lanes)
+        self.lane_idx = min(num_lanes - 1, max(0, self.lane_idx))
+
         # 3. Random lane cut decision (checks gap clearance first)
         self.cut_timer -= dt
         if self.cut_timer <= 0:
             if random.random() < self.cut_prob:
-                if self.vtype in ('TRUCK', 'BUS'):
-                    cand_offset = random.choice([-rw * 0.16, 0.0, rw * 0.15])
-                elif self.vtype == 'AUTO':
-                    cand_offset = random.choice([-rw * 0.26, -rw * 0.10, rw * 0.20])
-                elif self.vtype == 'BIKE':
-                    cand_offset = random.uniform(-rw * 0.28, rw * 0.28)
-                else: # CAR
-                    cand_offset = random.choice([-rw * 0.22, 0.0, rw * 0.22])
+                possible_lanes = [idx for idx in range(num_lanes) if idx != self.lane_idx]
+                if possible_lanes:
+                    cand_lane_idx = random.choice(possible_lanes)
+                    if self.vtype == 'BIKE':
+                        cand_jitter = random.uniform(-lane_w * 0.18, lane_w * 0.18)
+                    elif self.vtype in ('TRUCK', 'BUS'):
+                        cand_jitter = random.uniform(-lane_w * 0.08, lane_w * 0.08)
+                    else:
+                        cand_jitter = random.uniform(-lane_w * 0.10, lane_w * 0.10)
 
-                cand_x = road_cx + cand_offset
-                cand_x = max(safe_left + 4, min(safe_right - 4, cand_x))
+                    cand_x = lanes[cand_lane_idx] + cand_jitter
+                    cand_x = max(safe_left + 4, min(safe_right - 4, cand_x))
 
-                # Check if target lateral lane is clear of neighbors
-                is_clear = True
-                if all_traffic:
-                    for other in all_traffic:
-                        if other is self:
-                            continue
-                        if abs(other.y - self.y) < 70 and abs(other.x - cand_x) < (self.width + other.width) * 0.65:
-                            is_clear = False
-                            break
-                if player_car and abs(player_car.y - self.y) < 70 and abs(player_car.x - cand_x) < (self.width + player_car.width) * 0.65:
-                    is_clear = False
+                    # Check if target lateral lane is clear of neighbors
+                    is_clear = True
+                    if all_traffic:
+                        for other in all_traffic:
+                            if other is self:
+                                continue
+                            if abs(other.y - self.y) < 70 and abs(other.x - cand_x) < (self.width + other.width) * 0.65:
+                                is_clear = False
+                                break
+                    if player_car and abs(player_car.y - self.y) < 70 and abs(player_car.x - cand_x) < (self.width + player_car.width) * 0.65:
+                        is_clear = False
 
-                if is_clear:
-                    self.lateral_offset = cand_offset
+                    if is_clear:
+                        self.lane_idx = cand_lane_idx
+                        self.sub_lane_jitter = cand_jitter
 
             self.cut_timer = random.uniform(self.cut_interval[0], self.cut_interval[1])
 
@@ -717,8 +726,10 @@ class TrafficVehicle:
         if self.speed <= 1.0:
             self.vx = 0.0
         else:
-            target_x = road_cx + self.lateral_offset
+            # Maintain virtual lane position with slight within-lane jitter
+            target_x = lanes[self.lane_idx] + self.sub_lane_jitter
             target_x = max(safe_left, min(safe_right, target_x))
+            self.lateral_offset = target_x - road_cx
 
             lateral_error = target_x - self.x
             desired_vx = max(-self.max_lat_spd, min(self.max_lat_spd, lateral_error * 2.0))
@@ -866,8 +877,8 @@ class ObstacleManager:
                 ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
                 weights=[0.24, 0.18, 0.28, 0.18, 0.12]
             )[0]
-            spd, off = self._get_vehicle_spawn_params(vtype, rw)
-            self.traffic.append(TrafficVehicle(cx + off, curr_y, vtype, spd, off))
+            spd, off, lane_idx, jitter = self._get_vehicle_spawn_params(vtype, rw, curr_y)
+            self.traffic.append(TrafficVehicle(cx + off, curr_y, vtype, spd, off, lane_idx, jitter))
 
         # Pre-populate 5 pedestrians
         ped_y = start_y - 180.0
@@ -883,23 +894,29 @@ class ObstacleManager:
         self._spawn_cow_herd(cow_y, herd_id=1)
         self._spawn_cow_herd(cow_y - 500.0, herd_id=2)
 
-    def _get_vehicle_spawn_params(self, vtype: str, rw: float):
-        if vtype == 'TRUCK':
-            speed = random.uniform(80.0, 105.0)
-            offset = random.choice([-rw * 0.18, rw * 0.16])
-        elif vtype == 'BUS':
-            speed = random.uniform(90.0, 115.0)
-            offset = random.choice([-rw * 0.20, 0.0])
+    def _get_vehicle_spawn_params(self, vtype: str, rw: float, y: float = 0.0):
+        lanes, lane_w = self.road.get_virtual_lanes(y)
+        num_lanes = len(lanes)
+        if vtype in ('TRUCK', 'BUS'):
+            speed = random.uniform(80.0, 105.0) if vtype == 'TRUCK' else random.uniform(90.0, 115.0)
+            lane_idx = 0 if random.random() < 0.65 else (1 if num_lanes > 2 else 0)
+            jitter = random.uniform(-lane_w * 0.08, lane_w * 0.08)
         elif vtype == 'AUTO':
             speed = random.uniform(96.0, 124.0)
-            offset = random.choice([-rw * 0.26, -rw * 0.10, rw * 0.20])
+            lane_idx = 0 if random.random() < 0.55 else min(1, num_lanes - 1)
+            jitter = random.uniform(-lane_w * 0.12, lane_w * 0.12)
         elif vtype == 'BIKE':
             speed = random.uniform(130.0, 170.0)
-            offset = random.uniform(-rw * 0.28, rw * 0.28)
+            lane_idx = random.randrange(num_lanes)
+            jitter = random.uniform(-lane_w * 0.18, lane_w * 0.18)
         else: # CAR
             speed = random.uniform(115.0, 150.0)
-            offset = random.choice([-rw * 0.22, 0.0, rw * 0.22])
-        return speed, offset
+            lane_idx = random.randrange(num_lanes)
+            jitter = random.uniform(-lane_w * 0.10, lane_w * 0.10)
+
+        target_x = lanes[lane_idx] + jitter
+        offset = target_x - self.road.get_road_center(y)
+        return speed, offset, lane_idx, jitter
 
     def _spawn_cow_herd(self, base_y: float, herd_id: int):
         herd_size = random.choices([1, 2, 3, 4], weights=[0.25, 0.38, 0.24, 0.13])[0]
@@ -984,9 +1001,9 @@ class ObstacleManager:
                 weights=[0.24, 0.18, 0.28, 0.18, 0.12]
             )[0]
 
-            spd, off = self._get_vehicle_spawn_params(vtype, rw)
+            spd, off, lane_idx, jitter = self._get_vehicle_spawn_params(vtype, rw, ty)
             tx = cx + off
-            self.traffic.append(TrafficVehicle(tx, ty, vtype, spd, off))
+            self.traffic.append(TrafficVehicle(tx, ty, vtype, spd, off, lane_idx, jitter))
 
             # Intervals scale dynamically with slider
             min_inv = 50.0 + (1.0 - self.traffic_density) * 140.0
