@@ -1281,6 +1281,7 @@ class ObstacleManager:
         self.next_traffic_y = -150
         self.next_pedestrian_y = -180
         self.next_cow_y = -320
+        self.last_player_y = 0.0
 
         self.traffic_density = 0.5  # 0.1 (Sparse) to 1.0 (Rush Hour)
         self.max_pedestrians = 7    # Independent separate quota (not counted as traffic)
@@ -1293,19 +1294,104 @@ class ObstacleManager:
         # Pre-populate road with initial lively traffic, pedestrians, and cows
         self._prepopulate_world(0.0)
 
+    def set_traffic_density(self, density: float, player_y: float = None):
+        """Sets the traffic density slider (0.1 to 1.0) and actively adjusts vehicle count on the road."""
+        self.traffic_density = max(0.1, min(1.0, float(density)))
+        py = player_y if player_y is not None else self.last_player_y
+        self._reconcile_traffic_population(py)
+
+    def _is_spawn_slot_clear(self, tx: float, ty: float, vtype: str, player_y: float = None) -> bool:
+        """Checks if candidate spawn slot is clear of player, other vehicles, potholes, and cows."""
+        v_w, v_len = TrafficVehicle.TRAFFIC_VEHICLE_DIMS.get(vtype, (28, 50))
+
+        # Check player vehicle headway/clearance
+        if player_y is not None and abs(ty - player_y) < 135.0:
+            return False
+
+        # Check against existing traffic
+        for other in self.traffic:
+            lat_dist = abs(other.x - tx)
+            min_lat = (v_w + other.width) * 0.5 + 8.0
+            if lat_dist < min_lat:
+                # Same lane / overlapping corridor: require safe longitudinal headway
+                if abs(other.y - ty) < (v_len + other.length) * 0.5 + 35.0:
+                    return False
+
+        # Check against potholes (don't spawn directly in crater)
+        for p in self.potholes:
+            if abs(p.y - ty) < (v_len * 0.5 + p.ry + 15.0) and abs(p.x - tx) < (v_w * 0.5 + p.rx + 12.0):
+                return False
+
+        # Check against cows (don't spawn directly on top of herd)
+        for cow in self.cows:
+            if abs(cow.y - ty) < (v_len * 0.5 + cow.length * 0.5 + 25.0) and abs(cow.x - tx) < (v_w * 0.5 + cow.width * 0.5 + 15.0):
+                return False
+
+        return True
+
+    def _reconcile_traffic_population(self, player_y: float):
+        """Actively reconciles the traffic count to match the current traffic_density target."""
+        target_count = int(round(5 + self.traffic_density * 27))
+
+        # 1. If too many vehicles (density reduced), trim furthest vehicles from player first
+        if len(self.traffic) > target_count:
+            self.traffic.sort(key=lambda t: abs(t.y - player_y), reverse=True)
+            self.traffic = self.traffic[len(self.traffic) - target_count:]
+            return
+
+        # 2. If too few vehicles (density increased), inject into available open slots along road
+        if len(self.traffic) < target_count:
+            candidate_ys = []
+            cy = player_y - 140.0
+            while cy > player_y - 1500.0:
+                candidate_ys.append(cy)
+                cy -= random.uniform(35.0, 60.0)
+
+            cy_rear = player_y + 130.0
+            while cy_rear < player_y + 320.0:
+                candidate_ys.append(cy_rear)
+                cy_rear += random.uniform(45.0, 75.0)
+
+            random.shuffle(candidate_ys)
+
+            for py_pos in candidate_ys:
+                if len(self.traffic) >= target_count:
+                    break
+
+                left, right, cx, rw = self.road.get_road_edges(py_pos)
+                lanes, _ = self.road.get_virtual_lanes(py_pos)
+
+                vtype = random.choices(
+                    ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
+                    weights=[0.24, 0.18, 0.28, 0.18, 0.12]
+                )[0]
+
+                lane_order = list(range(len(lanes)))
+                random.shuffle(lane_order)
+                for l_idx in lane_order:
+                    spd, off, lane_idx, jitter = self._get_vehicle_spawn_params(vtype, rw, py_pos, target_lane=l_idx)
+                    tx = cx + off
+                    if self._is_spawn_slot_clear(tx, py_pos, vtype, player_y):
+                        self.traffic.append(TrafficVehicle(tx, py_pos, vtype, spd, off, lane_idx, jitter))
+                        break
+
     def _prepopulate_world(self, start_y: float):
         """Spawns an initial distribution of vehicles, pedestrians, and cows ahead of the player."""
-        # Pre-populate 11 traffic vehicles across the road ahead
+        target_count = int(round(5 + self.traffic_density * 27))
         curr_y = start_y - 140.0
-        for _ in range(11):
-            curr_y -= random.uniform(95.0, 165.0)
+        for _ in range(target_count):
+            curr_y -= random.uniform(70.0, 130.0)
             left, right, cx, rw = self.road.get_road_edges(curr_y)
             vtype = random.choices(
                 ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
                 weights=[0.24, 0.18, 0.28, 0.18, 0.12]
             )[0]
             spd, off, lane_idx, jitter = self._get_vehicle_spawn_params(vtype, rw, curr_y)
-            self.traffic.append(TrafficVehicle(cx + off, curr_y, vtype, spd, off, lane_idx, jitter))
+            tx = cx + off
+            if self._is_spawn_slot_clear(tx, curr_y, vtype):
+                self.traffic.append(TrafficVehicle(tx, curr_y, vtype, spd, off, lane_idx, jitter))
+
+        self.next_traffic_y = curr_y - random.uniform(70.0, 130.0)
 
         # Pre-populate 5 pedestrians
         ped_y = start_y - 180.0
@@ -1321,26 +1407,27 @@ class ObstacleManager:
         self._spawn_cow_herd(cow_y, herd_id=1)
         self._spawn_cow_herd(cow_y - 500.0, herd_id=2)
 
-    def _get_vehicle_spawn_params(self, vtype: str, rw: float, y: float = 0.0):
+    def _get_vehicle_spawn_params(self, vtype: str, rw: float, y: float = 0.0, target_lane: int = None):
         lanes, lane_w = self.road.get_virtual_lanes(y)
         num_lanes = len(lanes)
         if vtype in ('TRUCK', 'BUS'):
             speed = random.uniform(80.0, 105.0) if vtype == 'TRUCK' else random.uniform(90.0, 115.0)
-            lane_idx = 0 if random.random() < 0.65 else (1 if num_lanes > 2 else 0)
+            lane_idx = target_lane if target_lane is not None else (0 if random.random() < 0.65 else (1 if num_lanes > 2 else 0))
             jitter = random.uniform(-lane_w * 0.08, lane_w * 0.08)
         elif vtype == 'AUTO':
             speed = random.uniform(96.0, 124.0)
-            lane_idx = 0 if random.random() < 0.55 else min(1, num_lanes - 1)
+            lane_idx = target_lane if target_lane is not None else (0 if random.random() < 0.55 else min(1, num_lanes - 1))
             jitter = random.uniform(-lane_w * 0.12, lane_w * 0.12)
         elif vtype == 'BIKE':
             speed = random.uniform(130.0, 170.0)
-            lane_idx = random.randrange(num_lanes)
+            lane_idx = target_lane if target_lane is not None else random.randrange(num_lanes)
             jitter = random.uniform(-lane_w * 0.18, lane_w * 0.18)
         else: # CAR
             speed = random.uniform(115.0, 150.0)
-            lane_idx = random.randrange(num_lanes)
+            lane_idx = target_lane if target_lane is not None else random.randrange(num_lanes)
             jitter = random.uniform(-lane_w * 0.10, lane_w * 0.10)
 
+        lane_idx = min(max(0, lane_idx), num_lanes - 1)
         target_x = lanes[lane_idx] + jitter
         offset = target_x - self.road.get_road_center(y)
         return speed, offset, lane_idx, jitter
@@ -1374,6 +1461,8 @@ class ObstacleManager:
             player_y = float(player_ref)
             player_car = None
 
+        self.last_player_y = player_y
+
         # Update dynamic traffic
         for veh in self.traffic:
             veh.update(dt, self.road, self.traffic, player_car, self.pedestrians, self.cows)
@@ -1386,7 +1475,7 @@ class ObstacleManager:
         for cow in self.cows:
             cow.update(dt, self.road, self.traffic, player_car)
 
-        spawn_horizon = player_y - 1300
+        spawn_horizon = player_y - 1400
 
         # 1. Potholes
         while self.next_pothole_y > spawn_horizon:
@@ -1412,44 +1501,40 @@ class ObstacleManager:
             self.next_pothole_y -= random.uniform(260.0, 580.0)
 
         # 2. Dynamic Traffic (Scales strongly with traffic_density slider)
-        # Quota: 8 at min density, 18 at medium (0.5), up to 28 at rush hour (1.0)
-        max_active_traffic = int(7 + self.traffic_density * 21)
+        target_count = int(round(5 + self.traffic_density * 27))
 
-        # Ensure spawn point does not lag behind player
-        if self.next_traffic_y > player_y - 450:
-            self.next_traffic_y = player_y - 550
+        if len(self.traffic) < target_count:
+            attempts = 0
+            while self.next_traffic_y > spawn_horizon and len(self.traffic) < target_count and attempts < 15:
+                attempts += 1
+                ty = self.next_traffic_y
+                left, right, cx, rw = self.road.get_road_edges(ty)
 
-        while self.next_traffic_y > spawn_horizon and len(self.traffic) < max_active_traffic:
-            ty = self.next_traffic_y
-            left, right, cx, rw = self.road.get_road_edges(ty)
+                vtype = random.choices(
+                    ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
+                    weights=[0.24, 0.18, 0.28, 0.18, 0.12]
+                )[0]
 
-            vtype = random.choices(
-                ['AUTO', 'TRUCK', 'CAR', 'BIKE', 'BUS'],
-                weights=[0.24, 0.18, 0.28, 0.18, 0.12]
-            )[0]
+                spd, off, lane_idx, jitter = self._get_vehicle_spawn_params(vtype, rw, ty)
+                tx = cx + off
 
-            spd, off, lane_idx, jitter = self._get_vehicle_spawn_params(vtype, rw, ty)
-            tx = cx + off
+                if self._is_spawn_slot_clear(tx, ty, vtype, player_y):
+                    self.traffic.append(TrafficVehicle(tx, ty, vtype, spd, off, lane_idx, jitter))
+                    min_inv = 60.0 + (1.0 - self.traffic_density) * 80.0
+                    max_inv = 100.0 + (1.0 - self.traffic_density) * 140.0
+                    self.next_traffic_y -= random.uniform(min_inv, max_inv)
+                else:
+                    self.next_traffic_y -= random.uniform(35.0, 65.0)
 
-            # Ensure spawn location does not overlap or run abreast of existing traffic
-            has_overlap = False
-            v_w, v_len = TrafficVehicle.TRAFFIC_VEHICLE_DIMS.get(vtype, (28, 50))
-            for other in self.traffic:
-                # Longitudinal buffer across all lanes to ensure staggered traffic formation
-                if abs(other.y - ty) < (v_len + other.length) * 0.5 + 35.0:
-                    has_overlap = True
-                    break
+            # If still below target count, immediately reconcile
+            if len(self.traffic) < target_count:
+                self._reconcile_traffic_population(player_y)
 
-            if has_overlap:
-                self.next_traffic_y -= random.uniform(55.0, 95.0)
-                continue
-
-            self.traffic.append(TrafficVehicle(tx, ty, vtype, spd, off, lane_idx, jitter))
-
-            # Intervals scale dynamically with slider
-            min_inv = 85.0 + (1.0 - self.traffic_density) * 110.0
-            max_inv = 135.0 + (1.0 - self.traffic_density) * 190.0
-            self.next_traffic_y -= random.uniform(min_inv, max_inv)
+        # Ensure spawn horizon cursor tracks properly with player
+        if self.next_traffic_y > player_y - 650:
+            self.next_traffic_y = player_y - 850
+        elif self.next_traffic_y < spawn_horizon - 350:
+            self.next_traffic_y = spawn_horizon
 
         # 3. Independent Pedestrian Quota (Not counted as traffic)
         if self.next_pedestrian_y > player_y - 400:

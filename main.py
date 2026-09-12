@@ -101,7 +101,7 @@ class IndianHighwaySimulation:
                     if click_rect.collidepoint(mx, my):
                         self.dragging_slider = True
                         rel = (mx - slider_track_x) / float(slider_track_w)
-                        self.obstacles.traffic_density = max(0.1, min(1.0, rel))
+                        self.obstacles.set_traffic_density(max(0.1, min(1.0, rel)), self.car.y)
 
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
@@ -111,7 +111,7 @@ class IndianHighwaySimulation:
                 if self.dragging_slider and self.show_dashboard:
                     mx, my = event.pos
                     rel = (mx - slider_track_x) / float(slider_track_w)
-                    self.obstacles.traffic_density = max(0.1, min(1.0, rel))
+                    self.obstacles.set_traffic_density(max(0.1, min(1.0, rel)), self.car.y)
 
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
@@ -129,9 +129,11 @@ class IndianHighwaySimulation:
                 elif event.key == pygame.K_a:
                     self.car.auto_mode = not self.car.auto_mode
                 elif event.key == pygame.K_LEFTBRACKET:
-                    self.obstacles.traffic_density = max(0.1, round(self.obstacles.traffic_density - 0.1, 2))
+                    new_d = max(0.1, round(self.obstacles.traffic_density - 0.1, 2))
+                    self.obstacles.set_traffic_density(new_d, self.car.y)
                 elif event.key == pygame.K_RIGHTBRACKET:
-                    self.obstacles.traffic_density = min(1.0, round(self.obstacles.traffic_density + 0.1, 2))
+                    new_d = min(1.0, round(self.obstacles.traffic_density + 0.1, 2))
+                    self.obstacles.set_traffic_density(new_d, self.car.y)
                 elif event.key == pygame.K_r:
                     self.reset()
                 elif event.key == pygame.K_UP:
@@ -282,7 +284,7 @@ class IndianHighwaySimulation:
              (240, 190, 255), self.font_medium),
             (f"Potholes: {self.obstacles.potholes_avoided} dodged | Hits: {self.car.pothole_bumps}",
              (120, 255, 140) if self.car.pothole_bumps == 0 else (255, 160, 80), self.font_medium),
-            (f"Traffic: {self.obstacles.traffic_overtaken} overtaken | Hits: {self.car.collisions}",
+            (f"Traffic: {self.obstacles.traffic_overtaken} overtaken ({len(self.obstacles.traffic)} on road) | Hits: {self.car.collisions}",
              (160, 220, 255) if self.car.collisions == 0 else (255, 120, 100), self.font_medium),
             (f"Pedestrians: {self.obstacles.pedestrians_avoided} dodged | Hits: {self.car.pedestrian_bumps}",
              (255, 210, 140) if self.car.pedestrian_bumps == 0 else (255, 80, 80), self.font_medium),
@@ -474,7 +476,7 @@ class IndianHighwaySimulation:
 
         d_pct = int(self.obstacles.traffic_density * 100)
         d_status = "SPARSE" if d_pct <= 25 else "NORMAL" if d_pct <= 55 else "HIGH" if d_pct <= 80 else "RUSH HOUR"
-        t_d_label = self.font_small.render(f"TRAFFIC DENSITY: {d_pct}% [{d_status}]", True, (255, 215, 60))
+        t_d_label = self.font_small.render(f"VEHICLE DENSITY: {d_pct}% [{d_status}] ({len(self.obstacles.traffic)} active)", True, (255, 215, 60))
         dash_surf.blit(t_d_label, (16, slider_y - 2))
 
         track_y = slider_y + 16
