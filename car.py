@@ -20,6 +20,9 @@ class CircularDiscSensor:
     reactive lateral repulsion away from flank hazards, and automated directional horn.
     """
     SECTORS = ['FRONT', 'FR', 'RIGHT', 'RR', 'REAR', 'RL', 'LEFT', 'FL']
+    FORWARD_SECTORS = {'FRONT', 'FL', 'FR'}
+    FLANK_SECTORS = {'LEFT', 'RIGHT'}
+    REAR_SECTORS = {'REAR', 'RL', 'RR'}
 
     def __init__(self):
         self.r_inner = 46.0   # Critical Core (Emergency reflex stop)
@@ -37,6 +40,14 @@ class CircularDiscSensor:
         self.nearest_dist = 180.0
         self.nearest_threat = 'CLEAR'
 
+        # Directional Threat & Obstacle Tracking
+        self.red_zone_tracks = []
+        self.forward_hazard_present = False
+        self.rear_hazard_present = False
+        self.flank_hazard_present = False
+        self.forward_blocker_info = None
+        self.rear_blocker_info = None
+
     def update(self, car, road, obstacles, dt: float):
         self.sweep_angle = (self.sweep_angle + dt * 4.6) % (2 * math.pi)
         self.pulse_phase = (self.pulse_phase + dt * 2.6) % 1.0
@@ -45,6 +56,13 @@ class CircularDiscSensor:
             self.sector_distances[s] = self.r_outer
             self.sector_threats[s] = 'CLEAR'
             self.sector_points[s] = None
+
+        self.red_zone_tracks = []
+        self.forward_hazard_present = False
+        self.rear_hazard_present = False
+        self.flank_hazard_present = False
+        self.forward_blocker_info = None
+        self.rear_blocker_info = None
 
         min_y = car.y - self.r_outer - 25.0
         max_y = car.y + self.r_outer + 25.0
@@ -70,6 +88,9 @@ class CircularDiscSensor:
 
         nearest_d = self.r_outer
         nearest_t = 'CLEAR'
+
+        sin_h = math.sin(car.heading)
+        cos_h = math.cos(car.heading)
 
         for ox, oy, otype, rad in contacts:
             dx = ox - car.x
@@ -110,14 +131,54 @@ class CircularDiscSensor:
                     nearest_d = eff_dist
                     nearest_t = otype
 
+                # Directional Red Zone Analysis:
+                # Projects obstacle location onto vehicle heading and movement axis
+                if eff_dist < self.r_inner and otype not in ['CLEAR', 'POTHOLE', 'ROAD_EDGE']:
+                    # d_fwd: positive in front of vehicle heading, negative behind
+                    # d_lat: positive to right of vehicle heading, negative to left
+                    d_fwd = dx * sin_h - dy * cos_h
+                    d_lat = dx * cos_h + dy * sin_h
+
+                    # Forward trajectory corridor overlap check
+                    in_forward_cone = sec in self.FORWARD_SECTORS
+                    lateral_path_overlap = abs(d_lat) < (car.width * 0.5 + rad + 6.0)
+
+                    # Determine how this obstacle affects our direction of travel
+                    is_forward_hazard = (d_fwd > -2.0) and (in_forward_cone or lateral_path_overlap)
+                    is_rear_hazard = (sec in self.REAR_SECTORS) or (d_fwd <= -2.0)
+                    is_flank_hazard = (sec in self.FLANK_SECTORS) and not is_forward_hazard and not is_rear_hazard
+
+                    track_info = {
+                        'sector': sec,
+                        'type': otype,
+                        'dist': eff_dist,
+                        'd_fwd': d_fwd,
+                        'd_lat': d_lat,
+                        'is_forward_hazard': is_forward_hazard,
+                        'is_rear_hazard': is_rear_hazard,
+                        'is_flank_hazard': is_flank_hazard,
+                        'point': (ox, oy)
+                    }
+                    self.red_zone_tracks.append(track_info)
+
+                    if is_forward_hazard:
+                        self.forward_hazard_present = True
+                        if self.forward_blocker_info is None or eff_dist < self.forward_blocker_info['dist']:
+                            self.forward_blocker_info = track_info
+                    elif is_rear_hazard:
+                        self.rear_hazard_present = True
+                        if self.rear_blocker_info is None or eff_dist < self.rear_blocker_info['dist']:
+                            self.rear_blocker_info = track_info
+                    elif is_flank_hazard:
+                        self.flank_hazard_present = True
+
         self.nearest_dist = nearest_d
         self.nearest_threat = nearest_t
 
-        # 1. Critical core breach check (emergency stop threshold for solid collision obstacles: traffic, peds, cows)
-        self.critical_breached = any(
-            self.sector_distances[s] < self.r_inner and self.sector_threats[s] not in ['CLEAR', 'POTHOLE', 'ROAD_EDGE']
-            for s in self.SECTORS
-        )
+        # 1. Critical core breach check:
+        # ONLY triggers emergency halt when an obstacle is an actual obstruction in our forward path!
+        # Obstacles trailing behind us in the rear red zone NEVER trigger an emergency stop.
+        self.critical_breached = self.forward_hazard_present
 
         # 2. Reactive lateral repulsion away from flank hazards
         d_left = min(self.sector_distances['LEFT'], self.sector_distances['FL'], self.sector_distances['RL'])
@@ -161,10 +222,27 @@ class CircularDiscSensor:
         pygame.draw.circle(disc_surf, (255, 200, 40, 22), (dcx, dcy), int(self.r_mid))
         pygame.draw.circle(disc_surf, (255, 200, 40, 75), (dcx, dcy), int(self.r_mid), width=1)
 
-        # 3. Critical Core Safety Bubble (Red alert if breached)
-        core_alpha = 90 if self.critical_breached else 25
-        pygame.draw.circle(disc_surf, (255, 50, 50, core_alpha), (dcx, dcy), int(self.r_inner))
-        pygame.draw.circle(disc_surf, (255, 50, 50, 140 if self.critical_breached else 60), (dcx, dcy), int(self.r_inner), width=2 if self.critical_breached else 1)
+        # 3. Critical Core Safety Bubble (Red alert if forward hazard, amber if rear follower)
+        if self.forward_hazard_present:
+            core_alpha = 110
+            core_col = (255, 45, 45)
+            core_width = 2
+        elif self.rear_hazard_present:
+            core_alpha = 65
+            core_col = (255, 160, 30)
+            core_width = 1
+        elif self.flank_hazard_present:
+            core_alpha = 55
+            core_col = (255, 200, 40)
+            core_width = 1
+        else:
+            core_alpha = 25
+            core_col = (255, 50, 50)
+            core_width = 1
+
+        pygame.draw.circle(disc_surf, (*core_col, core_alpha), (dcx, dcy), int(self.r_inner))
+        pygame.draw.circle(disc_surf, (*core_col, 140 if (self.forward_hazard_present or self.rear_hazard_present) else 60),
+                           (dcx, dcy), int(self.r_inner), width=core_width)
 
         # 4. Pulsing Wave Ring
         pulse_r = int(self.r_inner + self.pulse_phase * (self.r_outer - self.r_inner))
@@ -340,7 +418,14 @@ class AutonomousCar:
         angle_diff = (desired_heading - self.heading + math.pi) % (2 * math.pi) - math.pi
         target_steer = max(-PLAYER_STEER_SPEED, min(PLAYER_STEER_SPEED, angle_diff * 1.8 + self.sensor.repulsion_steer))
         self.steering_angle += (target_steer - self.steering_angle) * min(1.0, 3.8 * dt)
-        self.heading += self.steering_angle * dt
+
+        # Vehicle kinematics constraint: No in-place turning when stationary!
+        # Heading rate scales with forward linear velocity. When speed <= 1.0 px/s, heading cannot turn.
+        if self.speed > 1.0:
+            speed_factor = min(1.0, self.speed / 40.0)
+            self.heading += self.steering_angle * speed_factor * dt
+        else:
+            self.steering_angle = 0.0
 
         # Realistic Steering Constraint:
         # Strictly clamp maximum off-axis heading relative to the road tangent
@@ -503,13 +588,32 @@ class AutonomousCar:
                     self.add_thought("Approaching unavoidable pothole; crossing at reduced speed.", "DECISION")
                 break
 
-        # Circular Disc Sensor emergency stop override
-        if self.sensor.critical_breached:
-            breach_threat = next((self.sensor.sector_threats[s] for s in self.sensor.SECTORS if self.sensor.sector_distances[s] < self.sensor.r_inner and self.sensor.sector_threats[s] not in ['CLEAR', 'POTHOLE', 'ROAD_EDGE']), 'OBSTACLE')
+        # Circular Disc Sensor Threat Assessment & Deadlock Prevention:
+        # Analyzes where the obstacle in the red zone is relative to our direction of travel.
+        if self.sensor.critical_breached and self.sensor.forward_hazard_present:
+            info = self.sensor.forward_blocker_info
+            threat_type = info['type'] if info else "OBSTACLE"
+            sec = info['sector'] if info else "FRONT"
             effective_desired = 0.0
             if self.auto_mode:
-                self.auto_speed_reason = f"SENSOR STOP ({breach_threat})"
-            self.add_thought(f"SENSOR DISC: Critical safety bubble breached ({breach_threat})! Full stop.", "ALERT")
+                self.auto_speed_reason = f"SENSOR STOP ({threat_type} {sec})"
+            self.add_thought(f"SENSOR DISC: Forward path blocked by {threat_type} in {sec}! Emergency stop.", "ALERT")
+        elif self.sensor.rear_hazard_present:
+            # Obstacle is BEHIND us in the rear red zone.
+            # We must NOT stop, as stopping creates a deadlock or invites a rear-end collision!
+            info = self.sensor.rear_blocker_info
+            threat_type = info['type'] if info else "TRAFFIC"
+            # If path ahead is clear (effective_desired > 0), maintain forward cruising momentum away from tailgater
+            if effective_desired > 0.0:
+                effective_desired = max(effective_desired, 95.0)
+                if self.auto_mode and not self.auto_speed_reason.startswith("FOLLOWING"):
+                    self.auto_speed_reason = f"EVADING REAR {threat_type}"
+                self.add_thought(f"SENSOR DISC: {threat_type} trailing in rear red zone; holding forward motion to open gap.", "DECISION")
+        elif self.sensor.flank_hazard_present:
+            # Flank obstacle alongside; lateral repulsion steering already provides separation
+            if effective_desired > 75.0:
+                effective_desired = min(effective_desired, 75.0)
+            self.add_thought("SENSOR DISC: Flank obstacle alongside; maintaining lateral clearance.", "INFO")
 
         if self.honk_timer > 0:
             self.honk_timer -= dt
@@ -600,7 +704,7 @@ class AutonomousCar:
 
         return self.path[-1]
 
-    def draw(self, surface: pygame.Surface, camera_y: float):
+    def draw(self, surface: pygame.Surface, camera_y: float, show_radar: bool = True):
         sy = self.y - camera_y
 
         shake_x = 0
@@ -612,8 +716,9 @@ class AutonomousCar:
         draw_x = self.x + shake_x
         draw_y = sy + shake_y
 
-        # Draw 360° Circular Disc Sensor Field on Road
-        self.sensor.draw_world(surface, self, camera_y)
+        # Draw 360° Circular Disc Sensor Field on Road if enabled
+        if show_radar:
+            self.sensor.draw_world(surface, self, camera_y)
 
         # Headlight beam projection
         beam_length = 190

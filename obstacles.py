@@ -713,27 +713,32 @@ class TrafficVehicle:
             self.cut_timer = random.uniform(self.cut_interval[0], self.cut_interval[1])
 
         # 4. Smooth lateral kinematics with STRICT ROAD CLAMPING (Never go offroad!)
-        target_x = road_cx + self.lateral_offset
-        target_x = max(safe_left, min(safe_right, target_x))
+        # Stationary vehicles cannot turn or slide laterally in place!
+        if self.speed <= 1.0:
+            self.vx = 0.0
+        else:
+            target_x = road_cx + self.lateral_offset
+            target_x = max(safe_left, min(safe_right, target_x))
 
-        lateral_error = target_x - self.x
-        desired_vx = max(-self.max_lat_spd, min(self.max_lat_spd, lateral_error * 2.0))
-        self.vx += (desired_vx - self.vx) * min(1.0, self.lat_accel * dt)
-        self.x += self.vx * dt
+            lateral_error = target_x - self.x
+            desired_vx = max(-self.max_lat_spd, min(self.max_lat_spd, lateral_error * 2.0))
+            self.vx += (desired_vx - self.vx) * min(1.0, self.lat_accel * dt)
+            self.x += self.vx * dt
 
-        # Enforce strict boundary clamp:
-        if self.x < safe_left:
-            self.x = safe_left
-            self.vx = max(0.0, self.vx)
-        elif self.x > safe_right:
-            self.x = safe_right
-            self.vx = min(0.0, self.vx)
+            # Enforce strict boundary clamp:
+            if self.x < safe_left:
+                self.x = safe_left
+                self.vx = max(0.0, self.vx)
+            elif self.x > safe_right:
+                self.x = safe_right
+                self.vx = min(0.0, self.vx)
 
-        # 5. Heading calculation with smooth lane-change sway
-        road_tangent = road.get_tangent_angle(self.y)
-        tilt_angle = math.atan2(self.vx, max(40.0, self.speed)) * 0.60
-        self.heading = road_tangent + tilt_angle
-        self.angle_deg = -math.degrees(self.heading)
+            tilt_angle = math.atan2(self.vx, max(40.0, self.speed)) * 0.60
+
+            # 5. Heading calculation with smooth lane-change sway (only when in motion)
+            road_tangent = road.get_tangent_angle(self.y)
+            self.heading = road_tangent + tilt_angle
+            self.angle_deg = -math.degrees(self.heading)
 
     def get_collision_rect(self) -> pygame.Rect:
         return pygame.Rect(
