@@ -146,3 +146,14 @@ python3 main.py
 
 * **To open the interactive visual sensor feed in your web browser**:
   Open the file `sensor_simulations/lidar_sim.html` in any web browser (such as Chrome or Firefox) to interactively adjust distance sliders, toggle day/night, change water levels in potholes, and observe live sensor scores.
+
+---
+
+simulations and preliminary prototype developed by TEAM MAIVSU:
+- Ishitwa Kumar Mondal (@ikmmondal67-a11y)
+- Muchali Madhav Sai
+- H Udaya Sankar (@uday0214)
+- Varshith Anugoju (@varshithanugoju22-creator)
+- Srinidhi Bathula
+- Adithi Govindan (@Adithi-bluestar)
+
