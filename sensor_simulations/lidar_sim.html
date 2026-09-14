@@ -1,0 +1,4680 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Autonomous Vehicle LiDAR + Camera Fusion Simulator</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #1e293b;
+        --accent: #38bdf8;
+        --text: #f8fafc;
+        --border: #334155;
+        --camera-color: #f59e0b;
+        --radar-color: #a855f7;
+        --radar-accent: #c084fc;
+        --swir-color: #06b6d4;
+        --swir-accent: #22d3ee;
+        --thermal-color: #f43f5e;
+        --thermal-accent: #fb7185;
+        --fusion-ok: #22c55e;
+        --fusion-warn: #eab308;
+        --fusion-fail: #ef4444;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+      header {
+        padding: 10px 20px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      header h1 {
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      header p {
+        font-size: 0.8rem;
+        color: #94a3b8;
+      }
+      .env-toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: #0f172a;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 4px 12px;
+        cursor: pointer;
+        font-size: 0.76rem;
+        font-weight: 700;
+        color: #f8fafc;
+        transition: all 0.25s;
+        user-select: none;
+      }
+      .env-toggle-btn:hover {
+        border-color: var(--accent);
+      }
+      .env-toggle-btn.night {
+        background: #1e1b4b;
+        border-color: #818cf8;
+        color: #c7d2fe;
+      }
+      .main-container {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+      .canvas-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+      canvas {
+        width: 100%;
+        background: #090d16;
+        cursor: crosshair;
+      }
+      #simCanvas {
+        height: 45%;
+        border-bottom: 1px solid var(--border);
+      }
+      .bottom-panels {
+        height: 55%;
+        display: flex;
+        flex-direction: row;
+        border-top: 1px solid var(--border);
+      }
+      .dashboard-slot {
+        flex: 1;
+        background: #060910;
+        padding: 8px 12px;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        border-right: 1px solid var(--border);
+        min-width: 0;
+      }
+      .dashboard-slot:last-child {
+        border-right: none;
+      }
+      .slot-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+        gap: 8px;
+      }
+      .slot-select {
+        background: #0f172a;
+        color: #f8fafc;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        cursor: pointer;
+        outline: none;
+      }
+      .slot-select:focus {
+        border-color: var(--accent);
+      }
+      .badge {
+        font-size: 0.65rem;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+      }
+      .badge-lidar {
+        background: rgba(56, 189, 248, 0.2);
+        color: var(--accent);
+        border: 1px solid rgba(56, 189, 248, 0.3);
+      }
+      .badge-radar {
+        background: rgba(168, 85, 247, 0.2);
+        color: var(--radar-accent);
+        border: 1px solid rgba(168, 85, 247, 0.3);
+      }
+      .badge-camera {
+        background: rgba(245, 158, 11, 0.2);
+        color: var(--camera-color);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+      }
+      .badge-swir {
+        background: rgba(6, 182, 212, 0.2);
+        color: var(--swir-accent);
+        border: 1px solid rgba(6, 182, 212, 0.3);
+      }
+      .badge-thermal {
+        background: rgba(244, 63, 94, 0.2);
+        color: var(--thermal-accent);
+        border: 1px solid rgba(244, 63, 94, 0.3);
+      }
+      .dashboard-slot canvas {
+        flex: 1;
+        width: 100%;
+        background: #020617;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+      }
+      .sidebar {
+        width: 340px;
+        background: var(--panel);
+        border-left: 1px solid var(--border);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        overflow-y: auto;
+      }
+      .section-header {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--border);
+        margin-top: 4px;
+      }
+      .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .control-group label {
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: #cbd5e1;
+        display: flex;
+        justify-content: space-between;
+      }
+      .control-group span.val {
+        color: var(--accent);
+        font-family: monospace;
+      }
+      .control-group span.val-cam {
+        color: var(--camera-color);
+        font-family: monospace;
+      }
+      .control-group span.val-radar {
+        color: var(--radar-accent);
+        font-family: monospace;
+      }
+      .control-group span.val-swir {
+        color: var(--swir-accent);
+        font-family: monospace;
+      }
+      .control-group span.val-thermal {
+        color: var(--thermal-accent);
+        font-family: monospace;
+      }
+      select.ctrl-select {
+        background: #0f172a;
+        color: #f8fafc;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 5px 8px;
+        font-size: 0.76rem;
+        cursor: pointer;
+        outline: none;
+      }
+      select.ctrl-select:focus {
+        border-color: var(--accent);
+      }
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--accent);
+      }
+      input[type="range"].cam-range {
+        accent-color: var(--camera-color);
+      }
+      input[type="range"].radar-range {
+        accent-color: var(--radar-color);
+      }
+      input[type="range"].swir-range {
+        accent-color: var(--swir-color);
+      }
+      input[type="range"].thermal-range {
+        accent-color: var(--thermal-color);
+      }
+      .btn-group {
+        display: flex;
+        gap: 6px;
+      }
+      button {
+        flex: 1;
+        padding: 7px 10px;
+        background: #334155;
+        color: #fff;
+        border: 1px solid #475569;
+        border-radius: 4px;
+        font-size: 0.78rem;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      button:hover {
+        background: #475569;
+      }
+      button.active {
+        background: #0284c7;
+        border-color: var(--accent);
+      }
+      .telemetry {
+        background: #0b1120;
+        border-radius: 4px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        font-family: monospace;
+        font-size: 0.72rem;
+        line-height: 1.6;
+      }
+      .telemetry .label {
+        color: #64748b;
+      }
+      .telemetry .alert {
+        color: #ef4444;
+        font-weight: bold;
+      }
+      .telemetry .ok {
+        color: #22c55e;
+        font-weight: bold;
+      }
+      .telemetry .warn {
+        color: #eab308;
+        font-weight: bold;
+      }
+      .fusion-box {
+        background: #0b1120;
+        border-radius: 4px;
+        padding: 10px;
+        border: 2px solid var(--border);
+        font-family: monospace;
+        font-size: 0.72rem;
+        line-height: 1.7;
+        transition: border-color 0.3s;
+      }
+      .fusion-box.confirmed {
+        border-color: var(--fusion-ok);
+      }
+      .fusion-box.uncertain {
+        border-color: var(--fusion-warn);
+      }
+      .fusion-box.rejected {
+        border-color: var(--fusion-fail);
+      }
+      .conf-bar-outer {
+        width: 100%;
+        height: 8px;
+        background: #1e293b;
+        border-radius: 4px;
+        margin-top: 4px;
+        overflow: hidden;
+      }
+      .conf-bar-inner {
+        height: 100%;
+        border-radius: 4px;
+        transition:
+          width 0.3s,
+          background 0.3s;
+      }
+      .pipeline-step {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 2px 0;
+      }
+      .pipeline-step .step-label {
+        color: #94a3b8;
+      }
+      .pipeline-step .step-val {
+        font-weight: 600;
+      }
+      /* Toggle switch */
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .toggle-row .toggle-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+      .toggle-label-lidar {
+        color: var(--accent);
+      }
+      .toggle-label-cam {
+        color: var(--camera-color);
+      }
+      .toggle-label-radar {
+        color: var(--radar-accent);
+      }
+      .toggle-label-swir {
+        color: var(--swir-accent);
+      }
+      .toggle-label-thermal {
+        color: var(--thermal-accent);
+      }
+      .toggle-switch {
+        position: relative;
+        width: 44px;
+        height: 22px;
+        flex-shrink: 0;
+      }
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .toggle-slider {
+        position: absolute;
+        inset: 0;
+        background: #475569;
+        border-radius: 22px;
+        cursor: pointer;
+        transition: background 0.25s;
+      }
+      .toggle-slider::before {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 3px;
+        top: 3px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform 0.25s;
+      }
+      .toggle-switch input:checked + .toggle-slider {
+        background: var(--accent);
+      }
+      .toggle-switch input:checked + .toggle-slider::before {
+        transform: translateX(22px);
+      }
+      .toggle-switch.cam-toggle input:checked + .toggle-slider {
+        background: var(--camera-color);
+      }
+      .toggle-switch.radar-toggle input:checked + .toggle-slider {
+        background: var(--radar-color);
+      }
+      .toggle-switch.swir-toggle input:checked + .toggle-slider {
+        background: var(--swir-color);
+      }
+      .toggle-switch.thermal-toggle input:checked + .toggle-slider {
+        background: var(--thermal-color);
+      }
+      .sensor-off-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.88);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: monospace;
+        font-size: 0.9rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border-radius: 4px;
+        pointer-events: none;
+        z-index: 2;
+      }
+      .sensor-off-lidar {
+        color: var(--accent);
+      }
+      .sensor-off-cam {
+        color: var(--camera-color);
+      }
+      .sensor-off-radar {
+        color: var(--radar-accent);
+      }
+      .sensor-off-swir {
+        color: var(--swir-accent);
+      }
+      .sensor-off-thermal {
+        color: var(--thermal-accent);
+      }
+      /* Cost estimation panel */
+      .cost-box {
+        background: #0b1120;
+        border-radius: 4px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        font-family: monospace;
+        font-size: 0.72rem;
+        line-height: 1.7;
+      }
+      .cost-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 2px 0;
+      }
+      .cost-row .cost-label {
+        color: #94a3b8;
+      }
+      .cost-row .cost-val {
+        font-weight: 600;
+        color: #f8fafc;
+      }
+      .cost-row .cost-val.off {
+        color: #475569;
+        text-decoration: line-through;
+      }
+      .cost-divider {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 6px 0;
+      }
+      .cost-total {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #f8fafc;
+      }
+      .cost-total .cost-val {
+        font-size: 0.9rem;
+      }
+      .cost-breakdown {
+        font-size: 0.65rem;
+        color: #64748b;
+        padding: 1px 0;
+      }
+      .feasibility-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 10px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        margin-top: 4px;
+      }
+      .feasibility-low {
+        background: rgba(34, 197, 94, 0.15);
+        color: #22c55e;
+        border: 1px solid rgba(34, 197, 94, 0.3);
+      }
+      .feasibility-mid {
+        background: rgba(234, 179, 8, 0.15);
+        color: #eab308;
+        border: 1px solid rgba(234, 179, 8, 0.3);
+      }
+      .feasibility-high {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+      }
+      .feasibility-off {
+        background: rgba(71, 85, 105, 0.15);
+        color: #475569;
+        border: 1px solid rgba(71, 85, 105, 0.3);
+      }
+
+      /* ── Benchmark Modal & Mathematical Optimizer ── */
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(5, 8, 18, 0.85);
+        backdrop-filter: blur(8px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        padding: 20px;
+      }
+      .modal-backdrop.open {
+        display: flex;
+      }
+      .modal-card {
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 1080px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+        overflow: hidden;
+      }
+      .modal-header {
+        padding: 16px 22px;
+        border-bottom: 1px solid #334155;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #1e293b;
+      }
+      .modal-header h2 {
+        font-size: 1.15rem;
+        margin: 0;
+        color: #f8fafc;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .modal-header p {
+        margin: 2px 0 0 0;
+        font-size: 0.76rem;
+        color: #94a3b8;
+      }
+      .btn-close-modal {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        line-height: 1;
+      }
+      .btn-close-modal:hover {
+        background: #334155;
+        color: #fff;
+      }
+      .modal-body {
+        padding: 20px 24px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      .math-card {
+        background: #090e1a;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        padding: 16px 20px;
+        border-left: 4px solid #38bdf8;
+      }
+      .math-card h3 {
+        font-size: 0.88rem;
+        color: #38bdf8;
+        margin: 0 0 10px 0;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .math-eq-row {
+        background: #0d1527;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 10px 14px;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.82rem;
+        line-height: 1.6;
+        color: #e2e8f0;
+        margin-bottom: 8px;
+        overflow-x: auto;
+      }
+      .math-hl {
+        color: #38bdf8;
+        font-weight: bold;
+      }
+      .math-var {
+        color: #fbbf24;
+        font-style: italic;
+      }
+      .math-cost {
+        color: #f43f5e;
+        font-weight: bold;
+      }
+      .math-util {
+        color: #34d399;
+        font-weight: bold;
+      }
+      .weights-tuner {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 14px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .weights-controls {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 16px;
+      }
+      .weight-slider-col {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .weight-presets {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .btn-weight-preset {
+        background: #334155;
+        border: 1px solid #475569;
+        border-radius: 4px;
+        color: #e2e8f0;
+        font-size: 0.74rem;
+        padding: 4px 10px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .btn-weight-preset.active,
+      .btn-weight-preset:hover {
+        background: #0284c7;
+        border-color: #38bdf8;
+        color: #fff;
+      }
+      .benchmark-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.78rem;
+        background: #0b1120;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .benchmark-table th {
+        background: #1e293b;
+        color: #94a3b8;
+        padding: 10px 12px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 1px solid #334155;
+      }
+      .benchmark-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #1e293b;
+        color: #f1f5f9;
+      }
+      .benchmark-table tr:last-child td {
+        border-bottom: none;
+      }
+      .rank-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        font-weight: bold;
+        font-size: 0.75rem;
+      }
+      .rank-1 { background: #eab308; color: #000; }
+      .rank-2 { background: #94a3b8; color: #000; }
+      .rank-3 { background: #b45309; color: #fff; }
+      .rank-4 { background: #334155; color: #cbd5e1; }
+      .rank-5 { background: #1e293b; color: #64748b; }
+      .bar-container {
+        width: 110px;
+        height: 8px;
+        background: #1e293b;
+        border-radius: 4px;
+        overflow: hidden;
+        display: inline-block;
+        vertical-align: middle;
+        margin-left: 6px;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 4px;
+      }
+      .scenario-tabs {
+        display: flex;
+        gap: 6px;
+        border-bottom: 1px solid #334155;
+        padding-bottom: 8px;
+        margin-top: 6px;
+      }
+      .tab-btn {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #94a3b8;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        cursor: pointer;
+      }
+      .tab-btn.active {
+        background: #0284c7;
+        color: #fff;
+        border-color: #38bdf8;
+      }
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>5-Sensor Autonomous Vehicle Pothole Perception Simulator</h1>
+        <p>
+          Multi-Modal Fusion: LiDAR + 4D Radar + RGB Camera + Gated SWIR + Thermal LWIR
+        </p>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px">
+        <button id="btnOpenBenchmark" class="env-toggle-btn" style="background: #1e1b4b; border-color: #6366f1; color: #c7d2fe;" onclick="openBenchmarkModal()">
+          <span>📊</span> 40-Scenario Benchmark & Optimizer
+        </button>
+        <button id="btnTimeOfDay" class="env-toggle-btn" onclick="toggleTimeOfDay()">
+          <span>☀️</span> Day Mode
+        </button>
+        <div style="font-size: 0.78rem; color: #64748b">
+          Drag vehicle horizontally &middot; Drag roof vertically to adjust height &middot; Configure in sidebar
+        </div>
+      </div>
+    </header>
+
+    <div class="main-container">
+      <div class="canvas-area">
+        <canvas id="simCanvas"></canvas>
+        <div class="bottom-panels">
+          <div class="dashboard-slot" id="slotContainer0">
+            <div class="slot-header">
+              <select id="selectSlot0" class="slot-select" onchange="changeSlot(0, this.value)">
+                <option value="lidar" selected>LiDAR Point Cloud</option>
+                <option value="radar">4D Imaging Radar</option>
+                <option value="camera">RGB Camera Feed</option>
+                <option value="swir">Gated SWIR (1550nm)</option>
+                <option value="thermal">Thermal LWIR (8-14µm)</option>
+              </select>
+              <span id="badgeSlot0" class="badge badge-lidar">LiDAR</span>
+            </div>
+            <canvas id="canvasSlot0"></canvas>
+            <div
+              id="overlaySlot0"
+              class="sensor-off-overlay sensor-off-lidar"
+              style="display: none"
+            >
+              LiDAR SENSOR OFF
+            </div>
+          </div>
+
+          <div class="dashboard-slot" id="slotContainer1">
+            <div class="slot-header">
+              <select id="selectSlot1" class="slot-select" onchange="changeSlot(1, this.value)">
+                <option value="lidar">LiDAR Point Cloud</option>
+                <option value="radar" selected>4D Imaging Radar</option>
+                <option value="camera">RGB Camera Feed</option>
+                <option value="swir">Gated SWIR (1550nm)</option>
+                <option value="thermal">Thermal LWIR (8-14µm)</option>
+              </select>
+              <span id="badgeSlot1" class="badge badge-radar">4D RADAR</span>
+            </div>
+            <canvas id="canvasSlot1"></canvas>
+            <div
+              id="overlaySlot1"
+              class="sensor-off-overlay sensor-off-radar"
+              style="display: none"
+            >
+              4D RADAR SENSOR OFF
+            </div>
+          </div>
+
+          <div class="dashboard-slot" id="slotContainer2">
+            <div class="slot-header">
+              <select id="selectSlot2" class="slot-select" onchange="changeSlot(2, this.value)">
+                <option value="lidar">LiDAR Point Cloud</option>
+                <option value="radar">4D Imaging Radar</option>
+                <option value="camera" selected>RGB Camera Feed</option>
+                <option value="swir">Gated SWIR (1550nm)</option>
+                <option value="thermal">Thermal LWIR (8-14µm)</option>
+              </select>
+              <span id="badgeSlot2" class="badge badge-camera">CAMERA</span>
+            </div>
+            <canvas id="canvasSlot2"></canvas>
+            <div
+              id="overlaySlot2"
+              class="sensor-off-overlay sensor-off-cam"
+              style="display: none"
+            >
+              CAMERA SENSOR OFF
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <!-- LiDAR Controls -->
+        <div class="section-header">
+          <div class="toggle-row">
+            <span class="toggle-label toggle-label-lidar">LiDAR Sensor</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggleLidar" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+
+        <div class="control-group">
+          <label
+            >LiDAR Elevation Angle:
+            <span id="valPitch" class="val">-5°</span></label
+          >
+          <input
+            type="range"
+            id="pitch"
+            min="-25"
+            max="5"
+            step="0.5"
+            value="-5"
+          />
+        </div>
+
+        <div class="control-group">
+          <label>Vertical FOV: <span id="valFov" class="val">30°</span></label>
+          <input type="range" id="fov" min="10" max="60" step="1" value="30" />
+        </div>
+
+        <div class="control-group">
+          <label
+            >Laser Channels (Beams):
+            <span id="valBeams" class="val">32</span></label
+          >
+          <input
+            type="range"
+            id="beams"
+            min="8"
+            max="128"
+            step="4"
+            value="32"
+          />
+        </div>
+
+        <!-- Camera Controls -->
+        <div class="section-header">
+          <div class="toggle-row">
+            <span class="toggle-label toggle-label-cam">Camera Sensor</span>
+            <label class="toggle-switch cam-toggle">
+              <input type="checkbox" id="toggleCamera" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label
+            >Camera FOV: <span id="valCamFov" class="val-cam">60°</span></label
+          >
+          <input
+            type="range"
+            class="cam-range"
+            id="camFov"
+            min="30"
+            max="120"
+            step="1"
+            value="60"
+          />
+        </div>
+
+        <div class="control-group">
+          <label
+            >Camera Tilt (Pitch):
+            <span id="valCamPitch" class="val-cam">-8°</span></label
+          >
+          <input
+            type="range"
+            class="cam-range"
+            id="camPitch"
+            min="-30"
+            max="5"
+            step="0.5"
+            value="-8"
+          />
+        </div>
+
+        <div class="control-group">
+          <label
+            >Camera Resolution (px):
+            <span id="valCamRes" class="val-cam">1920</span></label
+          >
+          <input
+            type="range"
+            class="cam-range"
+            id="camRes"
+            min="640"
+            max="3840"
+            step="320"
+            value="1920"
+          />
+        </div>
+
+        <!-- 4D Imaging Radar Controls -->
+        <div class="section-header">
+          <div class="toggle-row">
+            <span class="toggle-label toggle-label-radar">4D Imaging Radar (77 GHz)</span>
+            <label class="toggle-switch radar-toggle">
+              <input type="checkbox" id="toggleRadar" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label
+            >Radar Elevation Pitch:
+            <span id="valRadarPitch" class="val-radar">-6°</span></label
+          >
+          <input
+            type="range"
+            class="radar-range"
+            id="radarPitch"
+            min="-20"
+            max="5"
+            step="0.5"
+            value="-6"
+          />
+        </div>
+
+        <div class="control-group">
+          <label
+            >Radar Elevation FOV:
+            <span id="valRadarFov" class="val-radar">20°</span></label
+          >
+          <input
+            type="range"
+            class="radar-range"
+            id="radarFov"
+            min="10"
+            max="40"
+            step="1"
+            value="20"
+          />
+        </div>
+
+        <div class="control-group">
+          <label
+            >Virtual MIMO Channels:
+            <span id="valRadarChannels" class="val-radar">768</span></label
+          >
+          <input
+            type="range"
+            class="radar-range"
+            id="radarChannels"
+            min="64"
+            max="2304"
+            step="64"
+            value="768"
+          />
+        </div>
+
+        <!-- Gated SWIR Controls -->
+        <div class="section-header">
+          <div class="toggle-row">
+            <span class="toggle-label toggle-label-swir">Gated SWIR (1550 nm)</span>
+            <label class="toggle-switch swir-toggle">
+              <input type="checkbox" id="toggleSwir" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label>Gate Start: <span id="valSwirStart" class="val-swir">8.0 m</span></label>
+          <input
+            type="range"
+            class="swir-range"
+            id="swirGateStart"
+            min="2"
+            max="25"
+            step="0.5"
+            value="8"
+          />
+        </div>
+
+        <div class="control-group">
+          <label>Gate Depth Width: <span id="valSwirWidth" class="val-swir">6.0 m</span></label>
+          <input
+            type="range"
+            class="swir-range"
+            id="swirGateWidth"
+            min="1"
+            max="15"
+            step="0.5"
+            value="6"
+          />
+        </div>
+
+        <div class="control-group">
+          <label>Laser Pulse Power: <span id="valSwirPower" class="val-swir">250 W</span></label>
+          <input
+            type="range"
+            class="swir-range"
+            id="swirPower"
+            min="50"
+            max="500"
+            step="25"
+            value="250"
+          />
+        </div>
+
+        <!-- Thermal LWIR Controls -->
+        <div class="section-header">
+          <div class="toggle-row">
+            <span class="toggle-label toggle-label-thermal">Thermal LWIR (8-14 µm)</span>
+            <label class="toggle-switch thermal-toggle">
+              <input type="checkbox" id="toggleThermal" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label>Thermal NETD: <span id="valThermalNetd" class="val-thermal">35 mK</span></label>
+          <input
+            type="range"
+            class="thermal-range"
+            id="thermalNetd"
+            min="15"
+            max="65"
+            step="5"
+            value="35"
+          />
+        </div>
+
+        <div class="control-group">
+          <label>False-Color Palette</label>
+          <select id="thermalPalette" class="ctrl-select">
+            <option value="ironbow" selected>Ironbow Radiometric</option>
+            <option value="whitehot">White-Hot</option>
+            <option value="blackhot">Black-Hot</option>
+          </select>
+        </div>
+
+        <!-- Vehicle Chassis & Mount Controls -->
+        <div class="section-header">Vehicle Chassis & Mount Configuration</div>
+
+        <div class="control-group">
+          <label
+            >Vehicle Height:
+            <span id="valCarH" class="val">1.50 m</span></label
+          >
+          <input
+            type="range"
+            id="carH"
+            min="0.90"
+            max="3.50"
+            step="0.05"
+            value="1.50"
+          />
+        </div>
+
+        <div class="control-group">
+          <label>Vehicle Class Preset</label>
+          <div class="btn-group">
+            <button id="btnPresetSedan" class="active" onclick="setCarHeightPreset(1.45)">
+              Sedan (1.45m)
+            </button>
+            <button id="btnPresetSUV" onclick="setCarHeightPreset(1.80)">
+              SUV (1.80m)
+            </button>
+            <button id="btnPresetTruck" onclick="setCarHeightPreset(2.80)">
+              Truck/Bus (2.80m)
+            </button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label>Sensor Mount Location</label>
+          <div class="btn-group">
+            <button id="btnBumper" class="active" onclick="setMount('bumper')">
+              Bumper (0.35m)
+            </button>
+            <button id="btnRoof" onclick="setMount('roof')">
+              Roof (1.75m)
+            </button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label
+            >Vehicle Distance (X):
+            <span id="valCarX" class="val">6.0 m</span></label
+          >
+          <input type="range" id="carX" min="2" max="15" step="0.1" value="6" />
+        </div>
+
+        <!-- Scene Controls -->
+        <div class="section-header">Scene & Pothole Customization</div>
+
+        <div class="control-group">
+          <label>Pothole Shape Profile</label>
+          <select id="phShape" class="ctrl-select">
+            <option value="rect" selected>Rectangular Void (Sharp edge)</option>
+            <option value="bowl">Hemispherical Crater (Smooth bowl)</option>
+            <option value="stepped">Stepped Spalled Rim (Multi-tier)</option>
+            <option value="puddle">Water-Filled Depression (Puddle)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label
+            >Pothole Width: <span id="valPHW" class="val">0.45 m</span></label
+          >
+          <input
+            type="range"
+            id="phW"
+            min="0.2"
+            max="2.5"
+            step="0.05"
+            value="0.45"
+          />
+        </div>
+
+        <div class="control-group">
+          <label
+            >Pothole Depth: <span id="valPHD" class="val">0.12 m</span></label
+          >
+          <input
+            type="range"
+            id="phD"
+            min="0.03"
+            max="0.40"
+            step="0.01"
+            value="0.12"
+          />
+        </div>
+
+        <div class="control-group">
+          <label
+            >Wall Slope Angle: <span id="valPHSlope" class="val">65°</span></label
+          >
+          <input
+            type="range"
+            id="phSlope"
+            min="20"
+            max="90"
+            step="5"
+            value="65"
+          />
+        </div>
+
+        <div class="control-group">
+          <label
+            >Standing Water Level: <span id="valPHWater" class="val">0%</span></label
+          >
+          <input
+            type="range"
+            id="phWater"
+            min="0"
+            max="100"
+            step="5"
+            value="0"
+          />
+        </div>
+
+        <!-- LiDAR Telemetry -->
+        <div class="section-header">LiDAR Telemetry</div>
+        <div class="telemetry" id="telemetryBox">
+          <div>
+            VOID STATUS: <span id="telStatus" class="alert">OCCLUDED</span>
+          </div>
+          <div>LOOKAHEAD DISTANCE: <span id="telDist">0.0 m</span></div>
+          <div>BOTTOM RAY HITS: <span id="telHits">0</span></div>
+          <div>MIN INCIDENCE ANGLE: <span id="telAngle">0.0°</span></div>
+        </div>
+
+        <!-- 4D Radar Telemetry -->
+        <div class="section-header">4D Radar Telemetry (77 GHz)</div>
+        <div class="telemetry" id="radarTelemetryBox">
+          <div>
+            RADAR STATUS: <span id="telRadarStatus" class="ok">LOCKED</span>
+          </div>
+          <div>PEAK CAVITY RCS: <span id="telRadarRcs">+8.4 dBsm</span></div>
+          <div>DOPPLER VELOCITY: <span id="telRadarDoppler">-10.0 m/s</span></div>
+          <div>ELEVATION PROFILE: <span id="telRadarElev">-0.12 m</span></div>
+        </div>
+
+        <!-- SWIR Telemetry -->
+        <div class="section-header">Gated SWIR Telemetry (1550 nm)</div>
+        <div class="telemetry" id="swirTelemetryBox">
+          <div>
+            SWIR STATUS: <span id="telSwirStatus" class="ok">TARGET IN GATE</span>
+          </div>
+          <div>GATE WINDOW: <span id="telSwirGate">8.0m - 14.0m</span></div>
+          <div>WATER ABSORPTION: <span id="telSwirWater">NONE (0%)</span></div>
+          <div>CONTRAST RATIO: <span id="telSwirContrast">4.2 : 1</span></div>
+        </div>
+
+        <!-- Thermal Telemetry -->
+        <div class="section-header">Thermal LWIR Telemetry (8-14 µm)</div>
+        <div class="telemetry" id="thermalTelemetryBox">
+          <div>
+            THERMAL STATUS: <span id="telThermalStatus" class="ok">ANOMALY DETECTED</span>
+          </div>
+          <div>CAVITY ΔT: <span id="telThermalDeltaT">+5.8 °C</span></div>
+          <div>APPARENT TEMP: <span id="telThermalTemp">23.8 °C</span></div>
+          <div>NOISE EQUIV (NETD): <span id="telThermalNetd">35 mK</span></div>
+        </div>
+
+        <!-- Fusion Decision -->
+        <div class="section-header">Multi-Modal 5-Sensor Fusion Decision</div>
+        <div class="fusion-box" id="fusionBox">
+          <div
+            style="
+              margin-bottom: 4px;
+              font-size: 0.8rem;
+              font-weight: 700;
+              letter-spacing: 0.04em;
+            "
+          >
+            CROSS-VALIDATION PIPELINE (5 SENSORS)
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">① LiDAR void flag</span>
+            <span class="step-val" id="fusLidar">—</span>
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">② Cam texture anomaly</span>
+            <span class="step-val" id="fusCamTex">—</span>
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">③ Cam edge detection</span>
+            <span class="step-val" id="fusCamEdge">—</span>
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">④ Cam depth estimate</span>
+            <span class="step-val" id="fusCamDepth">—</span>
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">⑤ 4D Radar elevation</span>
+            <span class="step-val" id="fusRadarElev">—</span>
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">⑥ 4D Radar backscatter RCS</span>
+            <span class="step-val" id="fusRadarRcs">—</span>
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">⑦ 4D Radar Doppler lock</span>
+            <span class="step-val" id="fusRadarDoppler">—</span>
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">⑧ Gated SWIR gate & void</span>
+            <span class="step-val" id="fusSwir">—</span>
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">⑨ Thermal LWIR cavity ΔT</span>
+            <span class="step-val" id="fusThermal">—</span>
+          </div>
+          <div class="pipeline-step">
+            <span class="step-label">⑩ Multi-modal consistency</span>
+            <span class="step-val" id="fusGeo">—</span>
+          </div>
+          <div
+            style="
+              margin-top: 6px;
+              border-top: 1px solid #334155;
+              padding-top: 6px;
+            "
+          >
+            <div class="pipeline-step">
+              <span style="color: #f8fafc; font-weight: 700"
+                >FUSED CONFIDENCE</span
+              >
+              <span class="step-val" id="fusConf" style="font-size: 0.85rem"
+                >0%</span
+              >
+            </div>
+            <div class="conf-bar-outer">
+              <div
+                class="conf-bar-inner"
+                id="fusConfBar"
+                style="width: 0%; background: #ef4444"
+              ></div>
+            </div>
+            <div style="margin-top: 4px; text-align: center">
+              DECISION: <span id="fusDecision" class="alert">NO DATA</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cost Estimation -->
+        <div class="section-header">Sensor Cost Estimate (₹)</div>
+        <div class="cost-box" id="costBox">
+          <div
+            style="
+              margin-bottom: 4px;
+              font-size: 0.78rem;
+              font-weight: 700;
+              letter-spacing: 0.04em;
+              color: #94a3b8;
+            "
+          >
+            PER-VEHICLE SENSOR COST
+          </div>
+
+          <div style="font-size: 0.65rem; color: #64748b; margin-bottom: 2px">
+            LiDAR
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Base unit</span>
+            <span class="cost-val" id="costLidarBase">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ Channel premium</span>
+            <span class="cost-val" id="costLidarCh">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ FOV module</span>
+            <span class="cost-val" id="costLidarFov">—</span>
+          </div>
+          <div class="cost-row" style="font-weight: 600">
+            <span class="cost-label" style="color: #38bdf8"
+              >LiDAR subtotal</span
+            >
+            <span class="cost-val" id="costLidarTotal" style="color: #38bdf8"
+              >—</span
+            >
+          </div>
+
+          <hr class="cost-divider" />
+
+          <div style="font-size: 0.65rem; color: #64748b; margin-bottom: 2px">
+            Camera (RGB)
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Base unit</span>
+            <span class="cost-val" id="costCamBase">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ Resolution premium</span>
+            <span class="cost-val" id="costCamRes">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ Wide-angle lens</span>
+            <span class="cost-val" id="costCamLens">—</span>
+          </div>
+          <div class="cost-row" style="font-weight: 600">
+            <span class="cost-label" style="color: #f59e0b"
+              >Camera subtotal</span
+            >
+            <span class="cost-val" id="costCamTotal" style="color: #f59e0b"
+              >—</span
+            >
+          </div>
+
+          <hr class="cost-divider" />
+
+          <div style="font-size: 0.65rem; color: #64748b; margin-bottom: 2px">
+            4D Imaging Radar (77 GHz)
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Base RFIC array</span>
+            <span class="cost-val" id="costRadarBase">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ MIMO virtual channels</span>
+            <span class="cost-val" id="costRadarChannels">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ Radar DSP processor</span>
+            <span class="cost-val" id="costRadarDsp">—</span>
+          </div>
+          <div class="cost-row" style="font-weight: 600">
+            <span class="cost-label" style="color: #c084fc"
+              >Radar subtotal</span
+            >
+            <span class="cost-val" id="costRadarTotal" style="color: #c084fc"
+              >—</span
+            >
+          </div>
+
+          <hr class="cost-divider" />
+
+          <div style="font-size: 0.65rem; color: #64748b; margin-bottom: 2px">
+            Gated SWIR (1550 nm)
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">InGaAs sensor array</span>
+            <span class="cost-val" id="costSwirBase">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ 1550nm Pulsed illuminator</span>
+            <span class="cost-val" id="costSwirLaser">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ High-speed gating IC</span>
+            <span class="cost-val" id="costSwirGate">—</span>
+          </div>
+          <div class="cost-row" style="font-weight: 600">
+            <span class="cost-label" style="color: var(--swir-accent)"
+              >SWIR subtotal</span
+            >
+            <span class="cost-val" id="costSwirTotal" style="color: var(--swir-accent)"
+              >—</span
+            >
+          </div>
+
+          <hr class="cost-divider" />
+
+          <div style="font-size: 0.65rem; color: #64748b; margin-bottom: 2px">
+            Thermal LWIR (8-14 µm)
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">VOx microbolometer</span>
+            <span class="cost-val" id="costThermalBase">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ Germanium optics</span>
+            <span class="cost-val" id="costThermalOptics">—</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">+ Radiometric DSP</span>
+            <span class="cost-val" id="costThermalDsp">—</span>
+          </div>
+          <div class="cost-row" style="font-weight: 600">
+            <span class="cost-label" style="color: var(--thermal-accent)"
+              >Thermal subtotal</span
+            >
+            <span class="cost-val" id="costThermalTotal" style="color: var(--thermal-accent)"
+              >—</span
+            >
+          </div>
+
+          <hr class="cost-divider" />
+
+          <div class="cost-row cost-total">
+            <span>TOTAL (ACTIVE)</span>
+            <span class="cost-val" id="costTotal">—</span>
+          </div>
+          <div class="cost-breakdown" id="costPerKm"></div>
+          <div style="margin-top: 4px; text-align: center">
+            <span class="feasibility-badge" id="costFeasibility">—</span>
+          </div>
+        </div>
+      </div>
+    <!-- ── Automated Matrix Benchmark & Mathematical Optimizer Modal ── -->
+    <div id="benchmarkModal" class="modal-backdrop" onclick="closeBenchmarkModalOnBackdrop(event)">
+      <div class="modal-card" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <div>
+            <h2><span>📐</span> 40-Scenario Benchmark &amp; Multi-Attribute Utility Optimizer</h2>
+            <p>Evaluating 5 sensors across 5 distances (optimal pitch &theta;*), Day/Night, and 4 water levels</p>
+          </div>
+          <button class="btn-close-modal" onclick="closeBenchmarkModal()">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- 1. Mathematical Formulation Box -->
+          <div class="math-card">
+            <h3>Mathematical Equation &amp; Objective Formulation</h3>
+            <div class="math-eq-row">
+              <span class="math-hl">1. Multi-Scenario Matrix:</span>
+              <br />
+              &nbsp;&nbsp;Test scenario &gamma; = (<span class="math-var">d<sub>i</sub></span>, <span class="math-var">T<sub>j</sub></span>, <span class="math-var">W<sub>k</sub></span>) &in; 
+              &Dopf;<sub>5</sub> &times; &Topf;<sub>2</sub> &times; &Wopf;<sub>4</sub> &nbsp;(&Sigma; = 40 test cases per sensor)
+              <br />
+              &nbsp;&nbsp;&bull; <span class="math-var">d<sub>i</sub></span> &in; {3m, 6m, 9m, 12m, 15m} &nbsp;&bull; <span class="math-var">T<sub>j</sub></span> &in; {Day, Night} &nbsp;&bull; <span class="math-var">W<sub>k</sub></span> &in; {0% (Dry), 25% (Shallow), 50% (Half), 100% (Puddle)}
+            </div>
+
+            <div class="math-eq-row">
+              <span class="math-hl">2. Optimal Look-Down Pitch Angle Theorem:</span>
+              <br />
+              &nbsp;&nbsp;&theta;*(s, d<sub>i</sub>) = argmax<sub>&theta;</sub> E<sub>s</sub>(d<sub>i</sub>, &theta;, T<sub>j</sub>, W<sub>k</sub>) &asymp; -arctan(h<sub>s</sub> / d<sub>i</sub>) + &Delta;&theta;<sub>s</sub>
+              <br />
+              &nbsp;&nbsp;<i>Always centers the sensor aperture / elevation beam cluster onto the pothole cavity floor.</i>
+            </div>
+
+            <div class="math-eq-row">
+              <span class="math-hl">3. Aggregated Detection Effectiveness:</span>
+              <br />
+              &nbsp;&nbsp;<span class="math-hl">E&#772;<sub>s</sub></span> = &Sigma;<sub>i=1</sub><sup>5</sup> &Sigma;<sub>j=1</sub><sup>2</sup> &Sigma;<sub>k=1</sub><sup>4</sup> 
+              [ <span class="math-var">w<sub>d</sub>(d<sub>i</sub>)</span> &middot; <span class="math-var">w<sub>T</sub>(T<sub>j</sub>)</span> &middot; <span class="math-var">w<sub>W</sub>(W<sub>k</sub>)</span> &middot; <span class="math-hl">E<sub>s</sub>(d<sub>i</sub>, &theta;*, T<sub>j</sub>, W<sub>k</sub>)</span> ]
+            </div>
+
+            <div class="math-eq-row">
+              <span class="math-hl">4. Weighted Multi-Attribute Utility Function (MAUF) &amp; CER:</span>
+              <br />
+              &nbsp;&nbsp;<span class="math-util">U(s)</span> = <span class="math-var">w<sub>E</sub></span> &middot; <span class="math-hl">E&#772;<sub>s</sub></span> + <span class="math-var">w<sub>C</sub></span> &middot; (1 - <span class="math-cost">C&#770;<sub>s</sub></span>) 
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<i>where C&#770;<sub>s</sub> = (C<sub>s</sub> - C<sub>min</sub>) / (C<sub>max</sub> - C<sub>min</sub>)</i>
+              <br />
+              &nbsp;&nbsp;<span class="math-hl">CER<sub>s</sub></span> = (E&#772;<sub>s</sub> &times; 100) / (C<sub>s</sub> / 10,000) &nbsp;[% effectiveness per &#8377;10,000 cost]
+            </div>
+          </div>
+
+          <!-- 2. Interactive Weights Tuner -->
+          <div class="weights-tuner">
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <div style="font-weight: 600; font-size: 0.82rem; color: #f1f5f9">
+                Interactive Utility Trade-Off Weights (w<sub>E</sub> + w<sub>C</sub> = 1.0)
+              </div>
+              <div class="weight-presets">
+                <span style="font-size: 0.72rem; color: #94a3b8">Presets:</span>
+                <button class="btn-weight-preset active" id="btnWeightBalanced" onclick="setBenchmarkWeights(0.65)">Balanced (65/35)</button>
+                <button class="btn-weight-preset" id="btnWeightSafety" onclick="setBenchmarkWeights(0.85)">Safety-First (85/15)</button>
+                <button class="btn-weight-preset" id="btnWeightBudget" onclick="setBenchmarkWeights(0.45)">Budget (45/55)</button>
+              </div>
+            </div>
+
+            <div class="weights-controls">
+              <div class="weight-slider-col">
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem">
+                  <span style="color: #38bdf8">Effectiveness Weight (w<sub>E</sub>):</span>
+                  <span id="lblWeightE" style="font-weight: bold; color: #38bdf8">0.65</span>
+                </div>
+                <input type="range" id="sliderWeightE" min="0.10" max="0.95" step="0.05" value="0.65" oninput="onWeightSliderChange(this.value)" />
+              </div>
+
+              <div style="font-size: 0.8rem; color: #64748b; font-weight: bold">&harr;</div>
+
+              <div class="weight-slider-col">
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem">
+                  <span style="color: #f43f5e">Cost Savings Weight (w<sub>C</sub>):</span>
+                  <span id="lblWeightC" style="font-weight: bold; color: #f43f5e">0.35</span>
+                </div>
+                <div style="height: 6px; background: #334155; border-radius: 3px; overflow: hidden; margin-top: 8px">
+                  <div id="barWeightC" style="width: 35%; height: 100%; background: #f43f5e"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Results Ranking Table -->
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
+              <h3 style="font-size: 0.88rem; margin: 0; color: #f8fafc">Multi-Modal Benchmark Rankings (Optimal Pitch &theta;*)</h3>
+              <span style="font-size: 0.72rem; color: #94a3b8">Ranked dynamically by Multi-Attribute Utility Score U(s)</span>
+            </div>
+            <table class="benchmark-table" id="benchmarkTable">
+              <thead>
+                <tr>
+                  <th style="width: 50px; text-align: center">Rank</th>
+                  <th>Sensor Technology</th>
+                  <th>Cost (&#8377; INR)</th>
+                  <th>Aggregate Eff. (E&#772;)</th>
+                  <th>Day / Night</th>
+                  <th>Dry / Puddle</th>
+                  <th>Utility Score U(s)</th>
+                  <th>CER (%/&#8377;10k)</th>
+                </tr>
+              </thead>
+              <tbody id="benchmarkTableBody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 4. Scenario Breakdown Section -->
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px">
+              <h3 style="font-size: 0.85rem; margin: 0; color: #f8fafc">Operational Factor Dissection</h3>
+              <div class="scenario-tabs">
+                <button class="tab-btn active" onclick="switchBenchTab('dist', this)">5 Distances (&theta;*)</button>
+                <button class="tab-btn" onclick="switchBenchTab('tod', this)">Day vs. Night</button>
+                <button class="tab-btn" onclick="switchBenchTab('water', this)">4 Water Levels</button>
+              </div>
+            </div>
+
+            <div id="tabDist" class="tab-content active">
+              <table class="benchmark-table" id="tableDistBreakdown">
+                <!-- Populated via JS -->
+              </table>
+            </div>
+
+            <div id="tabTod" class="tab-content">
+              <table class="benchmark-table" id="tableTodBreakdown">
+                <!-- Populated via JS -->
+              </table>
+            </div>
+
+            <div id="tabWater" class="tab-content">
+              <table class="benchmark-table" id="tableWaterBreakdown">
+                <!-- Populated via JS -->
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const simCanvas = document.getElementById("simCanvas");
+      const ctxSim = simCanvas.getContext("2d");
+
+      // ── 3-Slot Sensor Dashboard Bar Canvases & Contexts ──────────────
+      const slotCanvases = [
+        document.getElementById("canvasSlot0"),
+        document.getElementById("canvasSlot1"),
+        document.getElementById("canvasSlot2"),
+      ];
+      const slotContexts = slotCanvases.map((c) => c.getContext("2d"));
+      let activeSlots = ["lidar", "radar", "camera"];
+
+      // ── Simulation State ──────────────────────────────────────────────
+      const world = {
+        timeOfDay: "day", // "day" or "night"
+        scale: 35,
+        originY: 0,
+        roadY: 0,
+        car: {
+          x: 6.0,
+          width: 4.2,
+          height: 1.5,
+          mount: "bumper",
+          sensorOffsetY: 0.35,
+        },
+        pothole: {
+          x: 14.0,
+          width: 0.45,
+          depth: 0.12,
+          shape: "rect", // "rect", "bowl", "stepped", "puddle"
+          slopeAngle: 65, // degrees wall incline
+          waterLevel: 0.0, // 0.0 to 1.0 (fraction of depth submerged)
+        },
+        lidar: {
+          pitch: (-5 * Math.PI) / 180,
+          fov: (30 * Math.PI) / 180,
+          channels: 32,
+          range: 25,
+        },
+        radar: {
+          pitch: (-6 * Math.PI) / 180,
+          fov: (20 * Math.PI) / 180,
+          channels: 768, // virtual MIMO channels
+          elevationBeams: 24, // vertical resolved virtual beams
+          range: 35, // meters
+          frequency: 77, // GHz
+          egoSpeed: 10.0, // m/s (36 km/h) for Doppler ground validation
+          mountOffsetX: 0.1,
+          mountOffsetY: -0.05,
+        },
+        camera: {
+          fov: (60 * Math.PI) / 180,
+          pitch: (-8 * Math.PI) / 180,
+          resolution: 1920,
+          range: 30, // max visible distance (meters)
+          mountOffsetX: -0.3, // relative to LiDAR mount, slightly inboard
+          mountOffsetY: 0.05, // slightly above lidar on same bracket
+        },
+        swir: {
+          fov: (50 * Math.PI) / 180,
+          pitch: (-7 * Math.PI) / 180,
+          wavelength: 1550, // nm
+          gateStart: 8.0, // meters
+          gateWidth: 6.0, // meters depth slice
+          pulsePower: 250, // W peak
+          range: 35,
+          mountOffsetX: -0.15,
+          mountOffsetY: 0.1,
+        },
+        thermal: {
+          fov: (50 * Math.PI) / 180,
+          pitch: (-8 * Math.PI) / 180,
+          netd: 35, // mK
+          palette: "ironbow", // "ironbow", "whitehot", "blackhot"
+          range: 35,
+          mountOffsetX: -0.4,
+          mountOffsetY: 0.12,
+        },
+      };
+
+      // ── Day / Night Mode Toggle ───────────────────────────────────────
+      function toggleTimeOfDay() {
+        world.timeOfDay = world.timeOfDay === "day" ? "night" : "day";
+        const btn = document.getElementById("btnTimeOfDay");
+        if (world.timeOfDay === "night") {
+          btn.classList.add("night");
+          btn.innerHTML = `<span>🌙</span> Night Mode`;
+        } else {
+          btn.classList.remove("night");
+          btn.innerHTML = `<span>☀️</span> Day Mode`;
+        }
+      }
+
+      // ── Sensor Enable/Disable Toggles ─────────────────────────────────
+      let lidarEnabled = true;
+      let cameraEnabled = true;
+      let radarEnabled = true;
+      let swirEnabled = true;
+      let thermalEnabled = true;
+
+      function isSensorEnabled(type) {
+        if (type === "lidar") return lidarEnabled;
+        if (type === "radar") return radarEnabled;
+        if (type === "camera") return cameraEnabled;
+        if (type === "swir") return swirEnabled;
+        if (type === "thermal") return thermalEnabled;
+        return false;
+      }
+
+      const slotBadgeInfo = {
+        lidar: { text: "LiDAR", cls: "badge badge-lidar", offCls: "sensor-off-lidar", offTxt: "LiDAR SENSOR OFF" },
+        radar: { text: "4D RADAR", cls: "badge badge-radar", offCls: "sensor-off-radar", offTxt: "4D RADAR SENSOR OFF" },
+        camera: { text: "CAMERA", cls: "badge badge-camera", offCls: "sensor-off-cam", offTxt: "CAMERA SENSOR OFF" },
+        swir: { text: "GATED SWIR", cls: "badge badge-swir", offCls: "sensor-off-swir", offTxt: "SWIR SENSOR OFF" },
+        thermal: { text: "THERMAL LWIR", cls: "badge badge-thermal", offCls: "sensor-off-thermal", offTxt: "THERMAL SENSOR OFF" },
+      };
+
+      function updateSlotBadge(slotIdx) {
+        const type = activeSlots[slotIdx];
+        const badge = document.getElementById(`badgeSlot${slotIdx}`);
+        const overlay = document.getElementById(`overlaySlot${slotIdx}`);
+        const info = slotBadgeInfo[type];
+        if (badge && info) {
+          badge.innerText = info.text;
+          badge.className = info.cls;
+        }
+        if (overlay && info) {
+          const enabled = isSensorEnabled(type);
+          overlay.style.display = enabled ? "none" : "flex";
+          overlay.className = `sensor-off-overlay ${info.offCls}`;
+          overlay.innerText = info.offTxt;
+        }
+      }
+
+      function changeSlot(slotIdx, sensorType) {
+        activeSlots[slotIdx] = sensorType;
+        updateSlotBadge(slotIdx);
+      }
+
+      function refreshAllSlotOverlays() {
+        for (let i = 0; i < 3; i++) {
+          updateSlotBadge(i);
+        }
+      }
+
+      document.getElementById("toggleLidar").addEventListener("change", (e) => {
+        lidarEnabled = e.target.checked;
+        refreshAllSlotOverlays();
+      });
+      document.getElementById("toggleCamera").addEventListener("change", (e) => {
+        cameraEnabled = e.target.checked;
+        refreshAllSlotOverlays();
+      });
+      document.getElementById("toggleRadar").addEventListener("change", (e) => {
+        radarEnabled = e.target.checked;
+        refreshAllSlotOverlays();
+      });
+      document.getElementById("toggleSwir").addEventListener("change", (e) => {
+        swirEnabled = e.target.checked;
+        refreshAllSlotOverlays();
+      });
+      document.getElementById("toggleThermal").addEventListener("change", (e) => {
+        thermalEnabled = e.target.checked;
+        refreshAllSlotOverlays();
+      });
+
+      // ── UI Bindings ───────────────────────────────────────────────────
+      const pitchInput = document.getElementById("pitch");
+      const fovInput = document.getElementById("fov");
+      const beamsInput = document.getElementById("beams");
+      const carXInput = document.getElementById("carX");
+      const carHInput = document.getElementById("carH");
+      const phWInput = document.getElementById("phW");
+      const phDInput = document.getElementById("phD");
+      const phShapeInput = document.getElementById("phShape");
+      const phSlopeInput = document.getElementById("phSlope");
+      const phWaterInput = document.getElementById("phWater");
+      const camFovInput = document.getElementById("camFov");
+      const camPitchInput = document.getElementById("camPitch");
+      const camResInput = document.getElementById("camRes");
+      const radarPitchInput = document.getElementById("radarPitch");
+      const radarFovInput = document.getElementById("radarFov");
+      const radarChannelsInput = document.getElementById("radarChannels");
+      const swirStartInput = document.getElementById("swirGateStart");
+      const swirWidthInput = document.getElementById("swirGateWidth");
+      const swirPowerInput = document.getElementById("swirPower");
+      const thermalNetdInput = document.getElementById("thermalNetd");
+      const thermalPaletteInput = document.getElementById("thermalPalette");
+
+      pitchInput.addEventListener("input", (e) => {
+        world.lidar.pitch = (parseFloat(e.target.value) * Math.PI) / 180;
+        document.getElementById("valPitch").innerText = `${e.target.value}°`;
+      });
+      fovInput.addEventListener("input", (e) => {
+        world.lidar.fov = (parseFloat(e.target.value) * Math.PI) / 180;
+        document.getElementById("valFov").innerText = `${e.target.value}°`;
+      });
+      beamsInput.addEventListener("input", (e) => {
+        world.lidar.channels = parseInt(e.target.value);
+        document.getElementById("valBeams").innerText = e.target.value;
+      });
+      carXInput.addEventListener("input", (e) => {
+        world.car.x = parseFloat(e.target.value);
+        document.getElementById("valCarX").innerText =
+          `${world.car.x.toFixed(1)} m`;
+      });
+      carHInput.addEventListener("input", (e) => {
+        world.car.height = parseFloat(e.target.value);
+        document.getElementById("valCarH").innerText =
+          `${world.car.height.toFixed(2)} m`;
+        updateMountHeight();
+        updatePresetButtonStates();
+      });
+      phWInput.addEventListener("input", (e) => {
+        world.pothole.width = parseFloat(e.target.value);
+        document.getElementById("valPHW").innerText =
+          `${world.pothole.width.toFixed(2)} m`;
+      });
+      phDInput.addEventListener("input", (e) => {
+        world.pothole.depth = parseFloat(e.target.value);
+        document.getElementById("valPHD").innerText =
+          `${world.pothole.depth.toFixed(2)} m`;
+      });
+      phShapeInput.addEventListener("change", (e) => {
+        world.pothole.shape = e.target.value;
+      });
+      phSlopeInput.addEventListener("input", (e) => {
+        world.pothole.slopeAngle = parseFloat(e.target.value);
+        document.getElementById("valPHSlope").innerText = `${e.target.value}°`;
+      });
+      phWaterInput.addEventListener("input", (e) => {
+        world.pothole.waterLevel = parseFloat(e.target.value) / 100.0;
+        document.getElementById("valPHWater").innerText = `${e.target.value}%`;
+      });
+      camFovInput.addEventListener("input", (e) => {
+        world.camera.fov = (parseFloat(e.target.value) * Math.PI) / 180;
+        document.getElementById("valCamFov").innerText = `${e.target.value}°`;
+      });
+      camPitchInput.addEventListener("input", (e) => {
+        world.camera.pitch = (parseFloat(e.target.value) * Math.PI) / 180;
+        document.getElementById("valCamPitch").innerText = `${e.target.value}°`;
+      });
+      camResInput.addEventListener("input", (e) => {
+        world.camera.resolution = parseInt(e.target.value);
+        document.getElementById("valCamRes").innerText = e.target.value;
+      });
+      radarPitchInput.addEventListener("input", (e) => {
+        world.radar.pitch = (parseFloat(e.target.value) * Math.PI) / 180;
+        document.getElementById("valRadarPitch").innerText = `${e.target.value}°`;
+      });
+      radarFovInput.addEventListener("input", (e) => {
+        world.radar.fov = (parseFloat(e.target.value) * Math.PI) / 180;
+        document.getElementById("valRadarFov").innerText = `${e.target.value}°`;
+      });
+      radarChannelsInput.addEventListener("input", (e) => {
+        world.radar.channels = parseInt(e.target.value);
+        world.radar.elevationBeams = Math.max(8, Math.min(48, Math.round(Math.sqrt(world.radar.channels) * 0.9)));
+        document.getElementById("valRadarChannels").innerText = e.target.value;
+      });
+      swirStartInput.addEventListener("input", (e) => {
+        world.swir.gateStart = parseFloat(e.target.value);
+        document.getElementById("valSwirStart").innerText = `${world.swir.gateStart.toFixed(1)} m`;
+      });
+      swirWidthInput.addEventListener("input", (e) => {
+        world.swir.gateWidth = parseFloat(e.target.value);
+        document.getElementById("valSwirWidth").innerText = `${world.swir.gateWidth.toFixed(1)} m`;
+      });
+      swirPowerInput.addEventListener("input", (e) => {
+        world.swir.pulsePower = parseInt(e.target.value);
+        document.getElementById("valSwirPower").innerText = `${world.swir.pulsePower} W`;
+      });
+      thermalNetdInput.addEventListener("input", (e) => {
+        world.thermal.netd = parseInt(e.target.value);
+        document.getElementById("valThermalNetd").innerText = `${world.thermal.netd} mK`;
+      });
+      thermalPaletteInput.addEventListener("change", (e) => {
+        world.thermal.palette = e.target.value;
+      });
+
+      function updateMountHeight() {
+        const bumperH = Math.min(0.55, Math.max(0.32, 0.35 + (world.car.height - 1.5) * 0.1));
+        const roofH = world.car.height + 0.25;
+
+        if (world.car.mount === "bumper") {
+          world.car.sensorOffsetY = bumperH;
+        } else {
+          world.car.sensorOffsetY = roofH;
+        }
+
+        const btnBumper = document.getElementById("btnBumper");
+        const btnRoof = document.getElementById("btnRoof");
+        if (btnBumper) btnBumper.innerText = `Bumper (${bumperH.toFixed(2)}m)`;
+        if (btnRoof) btnRoof.innerText = `Roof (${roofH.toFixed(2)}m)`;
+      }
+
+      function setMount(type) {
+        world.car.mount = type;
+        document
+          .getElementById("btnBumper")
+          .classList.toggle("active", type === "bumper");
+        document
+          .getElementById("btnRoof")
+          .classList.toggle("active", type === "roof");
+        updateMountHeight();
+      }
+
+      function setCarHeightPreset(h) {
+        world.car.height = h;
+        if (carHInput) carHInput.value = h;
+        const valCarH = document.getElementById("valCarH");
+        if (valCarH) valCarH.innerText = `${h.toFixed(2)} m`;
+        updateMountHeight();
+        updatePresetButtonStates();
+      }
+
+      function updatePresetButtonStates() {
+        const h = world.car.height;
+        const btnSedan = document.getElementById("btnPresetSedan");
+        const btnSUV = document.getElementById("btnPresetSUV");
+        const btnTruck = document.getElementById("btnPresetTruck");
+        if (btnSedan) btnSedan.classList.toggle("active", Math.abs(h - 1.45) < 0.08);
+        if (btnSUV) btnSUV.classList.toggle("active", Math.abs(h - 1.80) < 0.08);
+        if (btnTruck) btnTruck.classList.toggle("active", Math.abs(h - 2.80) < 0.08);
+      }
+
+      updateMountHeight();
+      updatePresetButtonStates();
+
+      function resize() {
+        simCanvas.width = simCanvas.clientWidth;
+        simCanvas.height = simCanvas.clientHeight;
+        for (let i = 0; i < 3; i++) {
+          if (slotCanvases[i]) {
+            slotCanvases[i].width = slotCanvases[i].clientWidth;
+            slotCanvases[i].height = slotCanvases[i].clientHeight;
+          }
+        }
+        world.roadY = simCanvas.height - 80;
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      // ── Ray-Segment Intersection ──────────────────────────────────────
+      function getIntersection(p1, p2, p3, p4) {
+        const denom =
+          (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+        if (denom === 0) return null;
+        const ua =
+          ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) /
+          denom;
+        const ub =
+          ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) /
+          denom;
+        if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
+          return {
+            x: p1.x + ua * (p2.x - p1.x),
+            y: p1.y + ua * (p2.y - p1.y),
+            dist: ua,
+          };
+        }
+        return null;
+      }
+
+      // ── Road Geometry Generator ──────────────────────────────────────
+      // Generates polygonal road geometry based on customized shape profile,
+      // wall slope angle, and standing water layer.
+      function generateRoadSegments() {
+        const ph = world.pothole;
+        const pX = ph.x;
+        const pW = ph.width;
+        const pD = ph.depth;
+        const slopeRad = (ph.slopeAngle * Math.PI) / 180;
+        const maxDx = pW * 0.45;
+        const dx = Math.min(maxDx, Math.max(0.01, pD / Math.tan(slopeRad)));
+
+        const segments = [];
+        // Road leading to pothole
+        segments.push({ p1: { x: 0, y: 0 }, p2: { x: pX, y: 0 }, type: "road" });
+
+        if (ph.shape === "rect") {
+          // Sharp / trapezoidal void based on wall slope
+          segments.push({ p1: { x: pX, y: 0 }, p2: { x: pX + dx, y: -pD }, type: "wall-front" });
+          segments.push({ p1: { x: pX + dx, y: -pD }, p2: { x: pX + pW - dx, y: -pD }, type: "floor" });
+          segments.push({ p1: { x: pX + pW - dx, y: -pD }, p2: { x: pX + pW, y: 0 }, type: "wall-rear" });
+        } else if (ph.shape === "bowl") {
+          // Smooth curved crater (discretized cosine / circular depression)
+          const steps = 14;
+          let prevPt = { x: pX, y: 0 };
+          for (let i = 1; i <= steps; i++) {
+            const frac = i / steps;
+            const curX = pX + frac * pW;
+            const curY = -pD * Math.sin(frac * Math.PI);
+            const isFloor = frac >= 0.28 && frac <= 0.72;
+            const isRear = frac > 0.72;
+            segments.push({
+              p1: prevPt,
+              p2: { x: curX, y: curY },
+              type: isFloor ? "floor" : isRear ? "wall-rear" : "wall-front",
+            });
+            prevPt = { x: curX, y: curY };
+          }
+        } else if (ph.shape === "stepped") {
+          // Multi-tiered spalled rim pothole
+          const step1D = pD * 0.45;
+          const step1W = pW * 0.28;
+          const step2W = pW * 0.44;
+          segments.push({ p1: { x: pX, y: 0 }, p2: { x: pX + dx * 0.4, y: -step1D }, type: "wall-front" });
+          segments.push({ p1: { x: pX + dx * 0.4, y: -step1D }, p2: { x: pX + step1W, y: -step1D }, type: "floor" });
+          segments.push({ p1: { x: pX + step1W, y: -step1D }, p2: { x: pX + step1W + dx * 0.4, y: -pD }, type: "wall-front" });
+          segments.push({ p1: { x: pX + step1W + dx * 0.4, y: -pD }, p2: { x: pX + step1W + step2W - dx * 0.4, y: -pD }, type: "floor" });
+          segments.push({ p1: { x: pX + step1W + step2W - dx * 0.4, y: -pD }, p2: { x: pX + step1W + step2W, y: -step1D * 0.7 }, type: "wall-rear" });
+          segments.push({ p1: { x: pX + step1W + step2W, y: -step1D * 0.7 }, p2: { x: pX + pW - dx * 0.4, y: -step1D * 0.7 }, type: "floor" });
+          segments.push({ p1: { x: pX + pW - dx * 0.4, y: -step1D * 0.7 }, p2: { x: pX + pW, y: 0 }, type: "wall-rear" });
+        } else if (ph.shape === "puddle") {
+          // Wide shallow depression
+          const puddleD = Math.max(0.04, pD * 0.65);
+          segments.push({ p1: { x: pX, y: 0 }, p2: { x: pX + pW * 0.18, y: -puddleD }, type: "wall-front" });
+          segments.push({ p1: { x: pX + pW * 0.18, y: -puddleD }, p2: { x: pX + pW * 0.82, y: -puddleD }, type: "floor" });
+          segments.push({ p1: { x: pX + pW * 0.82, y: -puddleD }, p2: { x: pX + pW, y: 0 }, type: "wall-rear" });
+        }
+
+        // Road past pothole
+        segments.push({ p1: { x: pX + pW, y: 0 }, p2: { x: 45, y: 0 }, type: "road" });
+
+        // Water surface segment if water is present
+        let waterSegment = null;
+        if (ph.waterLevel > 0.01) {
+          const effDepth = ph.shape === "puddle" ? Math.max(0.04, pD * 0.65) : pD;
+          const waterY = -effDepth * (1 - ph.waterLevel);
+          const wInset = dx * (1 - ph.waterLevel);
+          waterSegment = {
+            p1: { x: pX + wInset, y: waterY },
+            p2: { x: pX + pW - wInset, y: waterY },
+            waterY: waterY,
+            type: "water",
+          };
+        }
+
+        return { segments, waterSegment };
+      }
+
+      // ── Camera Sensor Model ───────────────────────────────────────────
+      function evaluateCamera(camX, camY, segments, waterSegment) {
+        const cam = world.camera;
+        const ph = world.pothole;
+
+        const halfFov = cam.fov / 2;
+        const topAngle = cam.pitch + halfFov;
+        const botAngle = cam.pitch - halfFov;
+
+        const phLeftX = ph.x;
+        const phRightX = ph.x + ph.width;
+        const phMidX = ph.x + ph.width / 2;
+        const phBottomY = -ph.depth;
+
+        function angleToPoint(px, py) {
+          return Math.atan2(py - camY, px - camX);
+        }
+
+        const angLeft = angleToPoint(phLeftX, 0);
+        const angRight = angleToPoint(phRightX, 0);
+        const angBottom = angleToPoint(phMidX, phBottomY);
+
+        const lipInFrustum =
+          angLeft <= topAngle &&
+          angLeft >= botAngle &&
+          angRight <= topAngle &&
+          angRight >= botAngle &&
+          phLeftX > camX &&
+          phRightX > camX;
+
+        const bottomInFrustum =
+          angBottom <= topAngle && angBottom >= botAngle && phMidX > camX;
+
+        const distToLip = phLeftX - camX;
+        const inRange = distToLip > 0 && distToLip < cam.range;
+
+        const angularSpan = Math.abs(angLeft - angRight);
+        const pixelCoverage = (angularSpan / cam.fov) * cam.resolution;
+
+        let textureScore = 0;
+        if (lipInFrustum && inRange) {
+          const distFactor = 1 - Math.min(distToLip / cam.range, 1);
+          const resFactor = Math.min(pixelCoverage / 50, 1);
+          const sizeFactor = Math.min(ph.width / 0.3, 1);
+          const waterBonus = ph.waterLevel > 0.1 ? 0.25 : 0;
+          textureScore = Math.min(1.0, distFactor * 0.4 + resFactor * 0.35 + sizeFactor * 0.25 + waterBonus);
+        }
+
+        let edgeScore = 0;
+        if (lipInFrustum && inRange) {
+          const depthContrast = Math.min(ph.depth / 0.08, 1);
+          const distPenalty = 1 - Math.pow(Math.min(distToLip / 20, 1), 0.5);
+          const resFactor = Math.min(pixelCoverage / 30, 1);
+          edgeScore = Math.min(1.0, depthContrast * 0.45 + distPenalty * 0.3 + resFactor * 0.25);
+        }
+
+        let depthEstScore = 0;
+        if (bottomInFrustum && inRange) {
+          const depthSignal = Math.min(ph.depth / 0.06, 1);
+          const proximity = 1 - Math.min(distToLip / 15, 1);
+          const coverage = Math.min(pixelCoverage / 40, 1);
+          depthEstScore = Math.min(1.0, depthSignal * 0.5 + proximity * 0.3 + coverage * 0.2);
+        }
+
+        // Night-time lighting degradation:
+        // Vehicles use forward headlights (effective illumination beam ~22m).
+        // Beyond headlights, optical camera suffers severe SNR collapse.
+        if (world.timeOfDay === "night") {
+          const headlightRange = 22.0;
+          let nightFactor;
+          if (distToLip <= headlightRange) {
+            nightFactor = 0.55 + 0.35 * (1 - distToLip / headlightRange);
+          } else {
+            const darkDist = distToLip - headlightRange;
+            nightFactor = Math.max(0.04, 0.55 * Math.exp(-darkDist / 3.0));
+          }
+          textureScore *= nightFactor;
+          edgeScore *= nightFactor;
+          depthEstScore *= nightFactor;
+        }
+
+        return {
+          lipInFrustum,
+          bottomInFrustum,
+          inRange,
+          distToLip,
+          pixelCoverage,
+          topAngle,
+          botAngle,
+          textureScore,
+          edgeScore,
+          depthEstScore,
+        };
+      }
+
+      // ── 4D Imaging Radar Sensor Model (77 GHz MIMO) ───────────────────
+      function evaluateRadar(radarX, radarY, segments, waterSegment) {
+        const rad = world.radar;
+        const ph = world.pothole;
+        const minAngle = rad.pitch - rad.fov / 2;
+        const maxAngle = rad.pitch + rad.fov / 2;
+        const numBeams = rad.elevationBeams;
+        const hits = [];
+        let cavityHits = 0;
+        let peakRcs = -22.0;
+        let hasRearWallHit = false;
+        let detectedDepth = 0;
+
+        for (let i = 0; i < numBeams; i++) {
+          const angle =
+            numBeams === 1
+              ? minAngle
+              : minAngle + (i / (numBeams - 1)) * (maxAngle - minAngle);
+          const rayEnd = {
+            x: radarX + Math.cos(angle) * rad.range,
+            y: radarY + Math.sin(angle) * rad.range,
+          };
+
+          let closestHit = null;
+          let hitSeg = null;
+
+          // Check road segments
+          for (let s = 0; s < segments.length; s++) {
+            const hit = getIntersection(
+              { x: radarX, y: radarY },
+              rayEnd,
+              segments[s].p1,
+              segments[s].p2,
+            );
+            if (hit && (!closestHit || hit.dist < closestHit.dist)) {
+              closestHit = hit;
+              hitSeg = segments[s];
+            }
+          }
+
+          // Check water surface reflection if present
+          if (waterSegment) {
+            const wHit = getIntersection(
+              { x: radarX, y: radarY },
+              rayEnd,
+              waterSegment.p1,
+              waterSegment.p2,
+            );
+            if (wHit && (!closestHit || wHit.dist < closestHit.dist)) {
+              closestHit = wHit;
+              hitSeg = waterSegment;
+            }
+          }
+
+          if (closestHit && hitSeg) {
+            const isFloor = hitSeg.type === "floor";
+            const isRearWall = hitSeg.type === "wall-rear";
+            const isWater = hitSeg.type === "water";
+
+            let rcs;
+            if (isRearWall) {
+              const depthFactor = Math.min(ph.depth / 0.1, 1.5);
+              rcs = 6.0 + depthFactor * 6.0;
+              hasRearWallHit = true;
+              cavityHits++;
+              detectedDepth = Math.max(detectedDepth, ph.depth);
+            } else if (isWater) {
+              // High dielectric constant of water creates specular reflection
+              rcs = -4.0 + Math.sin(angle * 6) * 2.0;
+              cavityHits++;
+            } else if (isFloor) {
+              rcs = -10.0 + Math.sin(angle * 5) * 1.5;
+              cavityHits++;
+              detectedDepth = Math.max(detectedDepth, ph.depth);
+            } else {
+              rcs = -18.0 + Math.sin(angle * 8) * 1.8;
+            }
+
+            if (rcs > peakRcs) peakRcs = rcs;
+            const doppler = -rad.egoSpeed * Math.cos(angle);
+
+            hits.push({
+              x: closestHit.x,
+              y: closestHit.y,
+              relX: closestHit.x - radarX,
+              relY: closestHit.y,
+              angle: angle,
+              rcs: rcs,
+              doppler: doppler,
+              isCavity: isFloor || isRearWall || isWater,
+              isRearWall: isRearWall,
+            });
+          }
+        }
+
+        const distToPothole = ph.x - radarX;
+        const inRange = distToPothole > 0 && distToPothole < rad.range;
+
+        let elevationScore = 0;
+        if (inRange && cavityHits > 0) {
+          elevationScore = Math.min(1.0, 0.4 + (cavityHits / 3) * 0.6);
+        }
+
+        let rcsScore = 0;
+        if (inRange) {
+          if (hasRearWallHit || peakRcs > 0) {
+            rcsScore = Math.min(1.0, Math.max(0, (peakRcs - 0) / 12.0));
+          } else if (cavityHits > 0) {
+            rcsScore = 0.4;
+          }
+        }
+
+        let dopplerScore = 0;
+        if (inRange && (cavityHits > 0 || hasRearWallHit)) {
+          dopplerScore = 0.95;
+        }
+
+        return {
+          hits,
+          cavityHits,
+          peakRcs,
+          hasRearWallHit,
+          detectedDepth,
+          distToPothole,
+          inRange,
+          elevationScore,
+          rcsScore,
+          dopplerScore,
+        };
+      }
+
+      // ── Gated SWIR Sensor Model (1550 nm Pulsed Laser) ────────────────
+      // Gated Shortwave Infrared uses 1550 nm pulsed laser illumination
+      // synchronized with a picosecond/nanosecond InGaAs shutter.
+      //
+      // Key Advantages:
+      // 1. Range Gating: Eliminates backscatter from fog/rain and focuses
+      //    all camera sensitivity on a narrow depth slice [gateStart, gateStart + gateWidth].
+      // 2. Liquid Water Absorption Peak: Liquid water has an intense absorption
+      //    peak at 1450-1550 nm (alpha ~ 30 cm^-1 vs 0.0001 cm^-1 for RGB).
+      //    Water-filled potholes absorb SWIR completely, rendering them as jet-black voids!
+      // 3. Day/Night Invariance: Active 1550nm pulsed laser illumination provides
+      //    equal contrast day and night.
+      function evaluateSwir(swirX, swirY, segments, waterSegment) {
+        const swir = world.swir;
+        const ph = world.pothole;
+        const distToPothole = ph.x - swirX;
+        const gateMin = swir.gateStart;
+        const gateMax = swir.gateStart + swir.gateWidth;
+
+        const inGate = distToPothole >= (gateMin - ph.width * 0.5) && distToPothole <= gateMax;
+        const inRange = distToPothole > 0 && distToPothole <= swir.range;
+
+        const waterFrac = ph.waterLevel;
+        const hasWater = waterFrac > 0.05;
+
+        let gateScore = 0;
+        let contrastRatio = 1.0;
+        let waterAbsorptionPct = 0;
+
+        if (inRange) {
+          if (inGate) {
+            const powerRatio = Math.min(1.5, swir.pulsePower / 250);
+            waterAbsorptionPct = hasWater ? Math.min(99, 85 + waterFrac * 14) : 0;
+            const waterBonus = hasWater ? 0.35 : 0.15;
+            gateScore = Math.min(1.0, (0.65 * powerRatio + waterBonus));
+            contrastRatio = hasWater ? 8.5 + waterFrac * 6.0 : 3.2 + (powerRatio - 1) * 1.5;
+          } else {
+            // Rejected outside gated depth window
+            gateScore = 0.05;
+            contrastRatio = 1.1;
+          }
+        }
+
+        return {
+          inGate,
+          inRange,
+          distToPothole,
+          gateScore,
+          contrastRatio,
+          waterAbsorptionPct,
+          gateMin,
+          gateMax,
+        };
+      }
+
+      // ── Thermal LWIR Sensor Model (8-14 µm Radiometric) ───────────────
+      // Long-wave Infrared measures emitted blackbody radiation according to
+      // the Stefan-Boltzmann law (W = epsilon * sigma * T^4).
+      //
+      // Physical Thermal Phenomena:
+      // 1. Day Mode: Road asphalt is directly heated by solar insolation (~40°C to 45°C).
+      //    Pothole cavities and bottom are shielded from direct sunlight (~28°C to 32°C),
+      //    creating a distinct NEGATIVE thermal differential (Delta T = -12°C).
+      // 2. Night Mode: Surface asphalt radiates heat to the cold sky, dropping to ~16°C.
+      //    The cavity retains deep earth geothermal warmth (~22°C to 24°C),
+      //    creating a distinct POSITIVE thermal differential (Delta T = +7°C).
+      // 3. Water Puddles: Standing water has high thermal inertia and reflects the cold
+      //    sky zenith at night (~6°C to 10°C), producing an unmistakable radiometric anomaly!
+      function evaluateThermal(thX, thY, segments, waterSegment) {
+        const th = world.thermal;
+        const ph = world.pothole;
+        const distToPothole = ph.x - thX;
+        const inRange = distToPothole > 0 && distToPothole <= th.range;
+
+        const isDay = world.timeOfDay === "day";
+        const roadTemp = isDay ? 41.5 : 16.2;
+
+        let cavityTemp;
+        if (ph.waterLevel > 0.05) {
+          // Water evaporation cooling in day; sky reflection cooling at night
+          cavityTemp = isDay ? 24.5 : 8.8;
+        } else {
+          cavityTemp = isDay ? 29.8 : 23.4;
+        }
+
+        const deltaT = cavityTemp - roadTemp;
+        const absDeltaT = Math.abs(deltaT);
+
+        // NETD (Noise Equivalent Temperature Difference in mK): lower is better
+        // FLIR Boson class: 35 mK (0.035°C)
+        const snr = (absDeltaT * 1000) / (th.netd * 2.5);
+        let thermalScore = 0;
+        if (inRange) {
+          const distPenalty = Math.max(0.2, 1 - (distToPothole / th.range) * 0.5);
+          thermalScore = Math.min(1.0, (snr / 15) * distPenalty);
+        }
+
+        return {
+          inRange,
+          distToPothole,
+          roadTemp,
+          cavityTemp,
+          deltaT,
+          absDeltaT,
+          thermalScore,
+          netd: th.netd,
+        };
+      }
+
+      // ── Multi-Modal 5-Sensor Cross-Validation Algorithm ───────────────
+      function fusionDecision(
+        lidarBottomHits,
+        lidarChannels,
+        cameraResult,
+        radarResult,
+        swirResult,
+        thermalResult,
+        lidarOn,
+        cameraOn,
+        radarOn,
+        swirOn,
+        thermalOn,
+      ) {
+        const activeCount =
+          (lidarOn ? 1 : 0) +
+          (cameraOn ? 1 : 0) +
+          (radarOn ? 1 : 0) +
+          (swirOn ? 1 : 0) +
+          (thermalOn ? 1 : 0);
+
+        if (activeCount === 0) {
+          return {
+            lidarScore: 0,
+            texScore: 0,
+            edgScore: 0,
+            depScore: 0,
+            radarElevScore: 0,
+            radarRcsScore: 0,
+            radarDopplerScore: 0,
+            swirScore: 0,
+            thermalScore: 0,
+            geoConsistency: 0,
+            fusedConfidence: 0,
+            decision: "NO DATA — ALL SENSORS OFF",
+            decisionClass: "rejected",
+          };
+        }
+
+        // 1. LiDAR void score
+        let lidarScore = 0;
+        if (lidarOn) {
+          if (lidarBottomHits >= 3) lidarScore = 1.0;
+          else if (lidarBottomHits === 2) lidarScore = 0.8;
+          else if (lidarBottomHits === 1) lidarScore = 0.5;
+          else lidarScore = 0.1;
+        }
+
+        // 2-4. Camera scores
+        const texScore = cameraOn ? cameraResult.textureScore : 0;
+        const edgScore = cameraOn ? cameraResult.edgeScore : 0;
+        const depScore = cameraOn ? cameraResult.depthEstScore : 0;
+
+        // 5-7. Radar scores
+        const radarElevScore = radarOn ? radarResult.elevationScore : 0;
+        const radarRcsScore = radarOn ? radarResult.rcsScore : 0;
+        const radarDopplerScore = radarOn ? radarResult.dopplerScore : 0;
+
+        // 8. SWIR score
+        const swirScore = swirOn ? swirResult.gateScore : 0;
+
+        // 9. Thermal score
+        const thermalScore = thermalOn ? thermalResult.thermalScore : 0;
+
+        // 10. Multi-Modal Consistency across active modalities
+        let geoConsistency = 0;
+        if (activeCount >= 2) {
+          const positiveScores = [];
+          if (lidarOn) positiveScores.push(lidarScore);
+          if (cameraOn) positiveScores.push(Math.max(texScore, edgScore, depScore));
+          if (radarOn) positiveScores.push(Math.max(radarElevScore, radarRcsScore));
+          if (swirOn) positiveScores.push(swirScore);
+          if (thermalOn) positiveScores.push(thermalScore);
+
+          const mean = positiveScores.reduce((a, b) => a + b, 0) / positiveScores.length;
+          const variance = positiveScores.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / positiveScores.length;
+          geoConsistency = Math.max(0, mean * (1 - Math.sqrt(variance) * 0.8));
+        }
+
+        // Weighted fusion
+        const rawWeights = {
+          lidar: lidarOn ? 0.20 : 0,
+          texture: cameraOn ? 0.08 : 0,
+          edge: cameraOn ? 0.08 : 0,
+          depth: cameraOn ? 0.06 : 0,
+          radarElev: radarOn ? 0.10 : 0,
+          radarRcs: radarOn ? 0.10 : 0,
+          radarDoppler: radarOn ? 0.05 : 0,
+          swir: swirOn ? 0.15 : 0,
+          thermal: thermalOn ? 0.10 : 0,
+          geo: activeCount >= 2 ? 0.08 : 0,
+        };
+
+        const totalWeight = Object.values(rawWeights).reduce((a, b) => a + b, 0);
+        const nw = {};
+        for (let k in rawWeights) {
+          nw[k] = totalWeight > 0 ? rawWeights[k] / totalWeight : 0;
+        }
+
+        const fusedConfidence =
+          nw.lidar * lidarScore +
+          nw.texture * texScore +
+          nw.edge * edgScore +
+          nw.depth * depScore +
+          nw.radarElev * radarElevScore +
+          nw.radarRcs * radarRcsScore +
+          nw.radarDoppler * radarDopplerScore +
+          nw.swir * swirScore +
+          nw.thermal * thermalScore +
+          nw.geo * geoConsistency;
+
+        let decision, decisionClass;
+        if (activeCount === 1) {
+          const activeName = lidarOn
+            ? "LiDAR"
+            : cameraOn
+            ? "CAM"
+            : radarOn
+            ? "4D RADAR"
+            : swirOn
+            ? "SWIR"
+            : "THERMAL";
+          if (fusedConfidence >= 0.7) {
+            decision = `LIKELY (${activeName} ONLY)`;
+            decisionClass = "uncertain";
+          } else if (fusedConfidence >= 0.4) {
+            decision = "UNCERTAIN — SINGLE SENSOR";
+            decisionClass = "uncertain";
+          } else {
+            decision = "REJECTED (SINGLE SENSOR)";
+            decisionClass = "rejected";
+          }
+        } else if (activeCount === 2) {
+          if (fusedConfidence >= 0.65) {
+            decision = "POTHOLE CONFIRMED (DUAL-MODAL)";
+            decisionClass = "confirmed";
+          } else if (fusedConfidence >= 0.38) {
+            decision = "UNCERTAIN — RESCANNING";
+            decisionClass = "uncertain";
+          } else {
+            decision = "REJECTED (CROSS-VALIDATION FAILED)";
+            decisionClass = "rejected";
+          }
+        } else {
+          // 3 or more sensors active
+          if (fusedConfidence >= 0.65) {
+            decision = `POTHOLE CONFIRMED (${activeCount}-MODAL FUSION)`;
+            decisionClass = "confirmed";
+          } else if (fusedConfidence >= 0.38) {
+            decision = "UNCERTAIN — RESCANNING";
+            decisionClass = "uncertain";
+          } else {
+            decision = "REJECTED (FALSE POSITIVE)";
+            decisionClass = "rejected";
+          }
+        }
+
+        return {
+          lidarScore,
+          texScore,
+          edgScore,
+          depScore,
+          radarElevScore,
+          radarRcsScore,
+          radarDopplerScore,
+          swirScore,
+          thermalScore,
+          geoConsistency,
+          fusedConfidence,
+          decision,
+          decisionClass,
+        };
+      }
+
+      // ── Sensor Cost Estimation (INR ₹) ────────────────────────────────
+      function estimateSensorCost() {
+        const lidar = world.lidar;
+        const cam = world.camera;
+        const ch = lidar.channels;
+        const fovDeg = (lidar.fov * 180) / Math.PI;
+        const camResPx = cam.resolution;
+        const camFovDeg = (cam.fov * 180) / Math.PI;
+
+        // 1. LiDAR
+        let lidarBase;
+        if (ch <= 8) lidarBase = 75000;
+        else if (ch <= 16) lidarBase = 75000 + ((ch - 8) / 8) * (150000 - 75000);
+        else if (ch <= 32) lidarBase = 150000 + ((ch - 16) / 16) * (350000 - 150000);
+        else if (ch <= 64) lidarBase = 350000 + ((ch - 32) / 32) * (850000 - 350000);
+        else lidarBase = 850000 + ((ch - 64) / 64) * (2500000 - 850000);
+        lidarBase = Math.round(lidarBase);
+
+        const lidarChPremium = Math.round(ch * 2800);
+        let lidarFovPremium = 0;
+        if (fovDeg > 15 && fovDeg <= 30) lidarFovPremium = Math.round(((fovDeg - 15) / 15) * 45000);
+        else if (fovDeg > 30 && fovDeg <= 45) lidarFovPremium = 45000 + Math.round(((fovDeg - 30) / 15) * 70000);
+        else if (fovDeg > 45) lidarFovPremium = 115000 + Math.round(((fovDeg - 45) / 15) * 95000);
+        const lidarTotal = lidarBase + lidarChPremium + lidarFovPremium;
+
+        // 2. Camera
+        let camBase;
+        if (camResPx <= 640) camBase = 8000;
+        else if (camResPx <= 1280) camBase = 8000 + ((camResPx - 640) / 640) * 10000;
+        else if (camResPx <= 1920) camBase = 18000 + ((camResPx - 1280) / 640) * 17000;
+        else if (camResPx <= 2560) camBase = 35000 + ((camResPx - 1920) / 640) * 30000;
+        else camBase = 65000 + ((camResPx - 2560) / 1280) * 55000;
+        camBase = Math.round(camBase);
+
+        const camResPremium = Math.round(Math.max(0, (camResPx - 1280) * 8));
+        let camLensPremium = 0;
+        if (camFovDeg > 60 && camFovDeg <= 90) camLensPremium = Math.round(((camFovDeg - 60) / 30) * 12000);
+        else if (camFovDeg > 90) camLensPremium = 12000 + Math.round(((camFovDeg - 90) / 30) * 22000);
+        const camTotal = camBase + camResPremium + camLensPremium;
+
+        // 3. 4D Radar
+        const rCh = world.radar.channels;
+        let radarBase;
+        if (rCh <= 192) radarBase = 35000 + (rCh / 192) * 15000;
+        else if (rCh <= 768) radarBase = 50000 + ((rCh - 192) / (768 - 192)) * 45000;
+        else if (rCh <= 1536) radarBase = 95000 + ((rCh - 768) / (1536 - 768)) * 55000;
+        else radarBase = 150000 + ((rCh - 1536) / (2304 - 1536)) * 60000;
+        radarBase = Math.round(radarBase);
+
+        const radarChannelsPremium = Math.round(rCh * 45);
+        const radarDspCost = Math.round(18000 + rCh * 18);
+        const radarTotal = radarBase + radarChannelsPremium + radarDspCost;
+
+        // 4. Gated SWIR (1550 nm)
+        const swirBase = 185000; // InGaAs sensor array
+        const swirLaser = Math.round(55000 + (world.swir.pulsePower / 250) * 35000);
+        const swirGate = 45000; // Nanosecond gating electronics & FPGA
+        const swirTotal = swirBase + swirLaser + swirGate;
+
+        // 5. Thermal LWIR (8-14 µm)
+        const thermalBase = Math.round(105000 + ((65 - world.thermal.netd) / 50) * 45000); // VOx microbolometer
+        const thermalOptics = 42000; // Germanium lens
+        const thermalDsp = 28000; // Radiometric DSP
+        const thermalTotal = thermalBase + thermalOptics + thermalDsp;
+
+        return {
+          lidarBase,
+          lidarChPremium,
+          lidarFovPremium,
+          lidarTotal,
+          camBase,
+          camResPremium,
+          camLensPremium,
+          camTotal,
+          radarBase,
+          radarChannelsPremium,
+          radarDspCost,
+          radarTotal,
+          swirBase,
+          swirLaser,
+          swirGate,
+          swirTotal,
+          thermalBase,
+          thermalOptics,
+          thermalDsp,
+          thermalTotal,
+        };
+      }
+
+      function formatINR(amount) {
+        if (amount === 0) return "₹0";
+        const str = Math.round(amount).toString();
+        let result = "";
+        const len = str.length;
+        result = str.substring(Math.max(0, len - 3));
+        let remaining = str.substring(0, Math.max(0, len - 3));
+        while (remaining.length > 0) {
+          const chunk = remaining.substring(Math.max(0, remaining.length - 2));
+          result = chunk + "," + result;
+          remaining = remaining.substring(0, Math.max(0, remaining.length - 2));
+        }
+        return "₹" + result;
+      }
+
+      function updateCostUI() {
+        const costs = estimateSensorCost();
+
+        // Helper
+        function setRow(elId, val, on) {
+          const el = document.getElementById(elId);
+          if (!el) return;
+          el.innerText = typeof val === "number" ? formatINR(val) : val;
+          el.className = on ? "cost-val" : "cost-val off";
+        }
+
+        // LiDAR
+        setRow("costLidarBase", costs.lidarBase, lidarEnabled);
+        setRow("costLidarCh", costs.lidarChPremium, lidarEnabled);
+        setRow("costLidarFov", costs.lidarFovPremium > 0 ? costs.lidarFovPremium : "—", lidarEnabled);
+        setRow("costLidarTotal", costs.lidarTotal, lidarEnabled);
+
+        // Camera
+        setRow("costCamBase", costs.camBase, cameraEnabled);
+        setRow("costCamRes", costs.camResPremium > 0 ? costs.camResPremium : "—", cameraEnabled);
+        setRow("costCamLens", costs.camLensPremium > 0 ? costs.camLensPremium : "—", cameraEnabled);
+        setRow("costCamTotal", costs.camTotal, cameraEnabled);
+
+        // 4D Radar
+        setRow("costRadarBase", costs.radarBase, radarEnabled);
+        setRow("costRadarChannels", costs.radarChannelsPremium, radarEnabled);
+        setRow("costRadarDsp", costs.radarDspCost, radarEnabled);
+        setRow("costRadarTotal", costs.radarTotal, radarEnabled);
+
+        // SWIR
+        setRow("costSwirBase", costs.swirBase, swirEnabled);
+        setRow("costSwirLaser", costs.swirLaser, swirEnabled);
+        setRow("costSwirGate", costs.swirGate, swirEnabled);
+        setRow("costSwirTotal", costs.swirTotal, swirEnabled);
+
+        // Thermal
+        setRow("costThermalBase", costs.thermalBase, thermalEnabled);
+        setRow("costThermalOptics", costs.thermalOptics, thermalEnabled);
+        setRow("costThermalDsp", costs.thermalDsp, thermalEnabled);
+        setRow("costThermalTotal", costs.thermalTotal, thermalEnabled);
+
+        const activeTotal =
+          (lidarEnabled ? costs.lidarTotal : 0) +
+          (cameraEnabled ? costs.camTotal : 0) +
+          (radarEnabled ? costs.radarTotal : 0) +
+          (swirEnabled ? costs.swirTotal : 0) +
+          (thermalEnabled ? costs.thermalTotal : 0);
+
+        document.getElementById("costTotal").innerText = formatINR(activeTotal);
+        const perKm = activeTotal / 200000;
+        document.getElementById("costPerKm").innerText =
+          activeTotal > 0
+            ? `Amortised: ${formatINR(perKm)}/km over 2L km lifespan`
+            : "";
+
+        const badge = document.getElementById("costFeasibility");
+        const activeSensorsCount =
+          (lidarEnabled ? 1 : 0) +
+          (cameraEnabled ? 1 : 0) +
+          (radarEnabled ? 1 : 0) +
+          (swirEnabled ? 1 : 0) +
+          (thermalEnabled ? 1 : 0);
+
+        if (activeSensorsCount === 0) {
+          badge.innerText = "NO SENSORS ACTIVE";
+          badge.className = "feasibility-badge feasibility-off";
+        } else if (activeTotal <= 250000) {
+          badge.innerText = "✓ MASS MARKET — HIGHLY FEASIBLE";
+          badge.className = "feasibility-badge feasibility-low";
+        } else if (activeTotal <= 800000) {
+          badge.innerText = "✓ MID-TIER ADAS — FEASIBLE";
+          badge.className = "feasibility-badge feasibility-low";
+        } else if (activeTotal <= 1800000) {
+          badge.innerText = "⚠ PREMIUM AV — LIMITED FEASIBILITY";
+          badge.className = "feasibility-badge feasibility-mid";
+        } else if (activeTotal <= 3500000) {
+          badge.innerText = "⚠ ROBOTAXI / R&D FLEET ONLY";
+          badge.className = "feasibility-badge feasibility-mid";
+        } else {
+          badge.innerText = "✗ PROHIBITIVE — HIGH COST";
+          badge.className = "feasibility-badge feasibility-high";
+        }
+      }
+
+      // ── Automated 40-Scenario Benchmark Suite & Optimizer ─────────────
+      let benchWeightE = 0.65;
+      let benchCurrentTab = "dist";
+
+      function openBenchmarkModal() {
+        document.getElementById("benchmarkModal").classList.add("open");
+        runBenchmarkSuite();
+      }
+
+      function closeBenchmarkModal() {
+        document.getElementById("benchmarkModal").classList.remove("open");
+      }
+
+      function closeBenchmarkModalOnBackdrop(e) {
+        if (e.target.id === "benchmarkModal") closeBenchmarkModal();
+      }
+
+      function setBenchmarkWeights(wE) {
+        benchWeightE = parseFloat(wE);
+        document.getElementById("sliderWeightE").value = benchWeightE;
+        document.getElementById("lblWeightE").innerText = benchWeightE.toFixed(2);
+        const wC = 1.0 - benchWeightE;
+        document.getElementById("lblWeightC").innerText = wC.toFixed(2);
+        document.getElementById("barWeightC").style.width = `${(wC * 100).toFixed(0)}%`;
+
+        document.getElementById("btnWeightBalanced").classList.toggle("active", Math.abs(benchWeightE - 0.65) < 0.04);
+        document.getElementById("btnWeightSafety").classList.toggle("active", Math.abs(benchWeightE - 0.85) < 0.04);
+        document.getElementById("btnWeightBudget").classList.toggle("active", Math.abs(benchWeightE - 0.45) < 0.04);
+
+        runBenchmarkSuite();
+      }
+
+      function onWeightSliderChange(val) {
+        benchWeightE = parseFloat(val);
+        document.getElementById("lblWeightE").innerText = benchWeightE.toFixed(2);
+        const wC = 1.0 - benchWeightE;
+        document.getElementById("lblWeightC").innerText = wC.toFixed(2);
+        document.getElementById("barWeightC").style.width = `${(wC * 100).toFixed(0)}%`;
+
+        document.getElementById("btnWeightBalanced").classList.toggle("active", Math.abs(benchWeightE - 0.65) < 0.04);
+        document.getElementById("btnWeightSafety").classList.toggle("active", Math.abs(benchWeightE - 0.85) < 0.04);
+        document.getElementById("btnWeightBudget").classList.toggle("active", Math.abs(benchWeightE - 0.45) < 0.04);
+
+        runBenchmarkSuite();
+      }
+
+      function switchBenchTab(tabName, btn) {
+        benchCurrentTab = tabName;
+        document.querySelectorAll(".scenario-tabs .tab-btn").forEach(b => b.classList.remove("active"));
+        if (btn) btn.classList.add("active");
+
+        document.getElementById("tabDist").classList.toggle("active", tabName === "dist");
+        document.getElementById("tabTod").classList.toggle("active", tabName === "tod");
+        document.getElementById("tabWater").classList.toggle("active", tabName === "water");
+      }
+
+      function runBenchmarkSuite() {
+        const costs = estimateSensorCost();
+        const sensorCosts = {
+          lidar: costs.lidarTotal,
+          camera: costs.camTotal,
+          radar: costs.radarTotal,
+          swir: costs.swirTotal,
+          thermal: costs.thermalTotal,
+        };
+
+        const distances = [3.0, 6.0, 9.0, 12.0, 15.0];
+        const distWeights = [0.15, 0.25, 0.25, 0.20, 0.15];
+        const tods = ["day", "night"];
+        const todWeights = [0.50, 0.50];
+        const waterLevels = [0.0, 0.25, 0.50, 1.0];
+        const waterWeights = [0.35, 0.25, 0.20, 0.20];
+
+        const sensors = [
+          { id: "lidar", name: "LiDAR Point Cloud", badgeCls: "badge-lidar", mountY: world.car.height + 0.25 },
+          { id: "camera", name: "RGB Camera Feed", badgeCls: "badge-camera", mountY: 0.35 },
+          { id: "radar", name: "4D Imaging Radar", badgeCls: "badge-radar", mountY: 0.35 },
+          { id: "swir", name: "Gated SWIR (1550nm)", badgeCls: "badge-swir", mountY: world.car.height + 0.25 },
+          { id: "thermal", name: "Thermal LWIR (8-14µm)", badgeCls: "badge-thermal", mountY: 0.35 },
+        ];
+
+        // Optimal pitch calculator
+        function calcOptimalPitch(sensorId, d, mountY) {
+          const geom = -Math.atan2(mountY, d);
+          if (sensorId === "lidar") return geom - (1.5 * Math.PI) / 180;
+          if (sensorId === "radar") return geom - (1.0 * Math.PI) / 180;
+          return geom;
+        }
+
+        // Single scenario evaluator
+        function evalScenario(sensorId, d, tod, w, mountY, optPitch) {
+          if (sensorId === "lidar") {
+            const fov = (30 * Math.PI) / 180;
+            const channels = 32;
+            const minA = optPitch - fov / 2;
+            const maxA = optPitch + fov / 2;
+            let hits = 0;
+            for (let i = 0; i < channels; i++) {
+              const ang = minA + (i / (channels - 1)) * (maxA - minA);
+              if (Math.tan(ang) < -1e-4) {
+                const hitX = -mountY / Math.tan(ang);
+                if (hitX >= d && hitX <= d + 0.45) hits++;
+              }
+            }
+            let score = hits >= 3 ? 1.0 : hits === 2 ? 0.82 : hits === 1 ? 0.55 : Math.max(0.10, 0.45 * Math.exp(-d / 8.0));
+            if (w > 0.05) score = Math.max(0.08, score * (1.0 - (0.15 + w * 0.25)));
+            if (tod === "night") score = Math.min(1.0, score * 1.02);
+            return score;
+          } else if (sensorId === "camera") {
+            const fov = (60 * Math.PI) / 180;
+            const span = Math.abs(Math.atan2(-mountY, d) - Math.atan2(-mountY, d + 0.45));
+            const px = (span / fov) * 1920;
+            const distFactor = Math.max(0, 1 - d / 30);
+            const resFactor = Math.min(1, px / 45);
+            const wBonus = w > 0.1 ? 0.25 : 0;
+            const tex = Math.min(1, distFactor * 0.40 + resFactor * 0.35 + 0.25 * Math.min(1, 0.45 / 0.3) + wBonus);
+            const edge = Math.min(1, Math.min(1, 0.12 / 0.08) * 0.45 + Math.max(0, 1 - Math.sqrt(d / 20)) * 0.30 + resFactor * 0.25);
+            const dep = Math.min(1, (0.12 / 0.06) * 0.5 + (1 - Math.min(1, d / 15)) * 0.3 + (px / 40) * 0.2);
+            let comp = 0.40 * tex + 0.35 * edge + 0.25 * dep;
+            if (tod === "night") {
+              const hRange = 22.0;
+              const nFactor = d <= hRange ? 0.55 + 0.35 * (1 - d / hRange) : Math.max(0.04, 0.55 * Math.exp(-(d - hRange) / 3.0));
+              comp *= nFactor;
+            }
+            return Math.min(1, Math.max(0, comp));
+          } else if (sensorId === "radar") {
+            if (d >= 35.0) return 0;
+            const elev = Math.min(1, 0.45 + Math.max(0.2, 1 - (d / 35) * 0.6) * 0.55);
+            const baseRcs = d <= 10.0 ? 6.0 : Math.max(1.0, 6.0 - (d - 10.0) * 0.8);
+            const rcs = Math.min(1, (baseRcs + (w > 0.1 ? 3.5 * w : 0)) / 12.0);
+            const doppler = 0.95;
+            return Math.min(1, 0.40 * elev + 0.35 * rcs + 0.25 * doppler);
+          } else if (sensorId === "swir") {
+            const gateStart = Math.max(1.0, d - 1.0);
+            const inGate = d >= gateStart && d <= gateStart + 6.0;
+            if (!inGate) return 0.05;
+            const wBonus = w > 0.05 ? 0.35 * w : 0.10;
+            const distAtten = Math.max(0.35, 1 - (d / 35) * 0.45);
+            return Math.min(1, (0.65 + wBonus) * distAtten);
+          } else if (sensorId === "thermal") {
+            if (d >= 35.0) return 0;
+            const isDay = tod === "day";
+            const roadT = isDay ? 41.5 : 16.2;
+            const cavT = w > 0.05 ? (isDay ? 24.5 : 8.8) : (isDay ? 29.8 : 23.4);
+            const deltaT = Math.abs(cavT - roadT);
+            const snr = (deltaT * 1000) / (35 * 2.5);
+            const distPen = Math.max(0.2, 1 - (d / 35) * 0.45);
+            return Math.min(1, (snr / 15.0) * distPen);
+          }
+          return 0;
+        }
+
+        // Run full matrix
+        const benchmarkResults = [];
+        const costsArray = Object.values(sensorCosts);
+        const minCost = Math.min(...costsArray);
+        const maxCost = Math.max(...costsArray);
+
+        sensors.forEach(s => {
+          let weightedScoreSum = 0;
+          let totalWeight = 0;
+          const distScores = { 3.0: [], 6.0: [], 9.0: [], 12.0: [], 15.0: [] };
+          const todScores = { day: [], night: [] };
+          const waterScores = { 0.0: [], 0.25: [], 0.50: [], 1.0: [] };
+          const optAngles = {};
+
+          distances.forEach((d, i) => {
+            const wD = distWeights[i];
+            const optPitch = calcOptimalPitch(s.id, d, s.mountY);
+            optAngles[d] = (optPitch * 180 / Math.PI).toFixed(1);
+
+            tods.forEach((t, j) => {
+              const wT = todWeights[j];
+              waterLevels.forEach((w, k) => {
+                const wW = waterWeights[k];
+                const weight = wD * wT * wW;
+                const score = evalScenario(s.id, d, t, w, s.mountY, optPitch);
+
+                weightedScoreSum += score * weight;
+                totalWeight += weight;
+                distScores[d].push(score);
+                todScores[t].push(score);
+                waterScores[w].push(score);
+              });
+            });
+          });
+
+          const aggEff = weightedScoreSum / totalWeight;
+          const cost = sensorCosts[s.id];
+          const normCost = maxCost > minCost ? (cost - minCost) / (maxCost - minCost) : 0.5;
+          const costSavings = 1.0 - normCost;
+          const wE = benchWeightE;
+          const wC = 1.0 - benchWeightE;
+          const utility = wE * aggEff + wC * costSavings;
+          const cer = (aggEff * 100) / (cost / 10000);
+
+          const avgDist = {};
+          distances.forEach(d => { avgDist[d] = distScores[d].reduce((a, b) => a + b, 0) / distScores[d].length; });
+          const avgTod = {};
+          tods.forEach(t => { avgTod[t] = todScores[t].reduce((a, b) => a + b, 0) / todScores[t].length; });
+          const avgWater = {};
+          waterLevels.forEach(w => { avgWater[w] = waterScores[w].reduce((a, b) => a + b, 0) / waterScores[w].length; });
+
+          benchmarkResults.push({
+            ...s,
+            cost,
+            aggEff,
+            normCost,
+            utility,
+            cer,
+            optAngles,
+            avgDist,
+            avgTod,
+            avgWater,
+          });
+        });
+
+        // Sort descending by Utility score
+        benchmarkResults.sort((a, b) => b.utility - a.utility);
+
+        // Render main benchmark table
+        const tbody = document.getElementById("benchmarkTableBody");
+        tbody.innerHTML = "";
+        benchmarkResults.forEach((r, idx) => {
+          const rank = idx + 1;
+          const utilPct = (r.utility * 100).toFixed(1);
+          const effPct = (r.aggEff * 100).toFixed(1);
+          const dayPct = (r.avgTod.day * 100).toFixed(0);
+          const nightPct = (r.avgTod.night * 100).toFixed(0);
+          const dryPct = (r.avgWater[0.0] * 100).toFixed(0);
+          const puddlePct = (r.avgWater[1.0] * 100).toFixed(0);
+
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td style="text-align: center">
+              <span class="rank-pill rank-${rank}">${rank}</span>
+            </td>
+            <td>
+              <span class="badge ${r.badgeCls}">${r.name}</span>
+            </td>
+            <td style="font-family: monospace; font-weight: bold; color: #f43f5e">
+              ${formatINR(r.cost)}
+            </td>
+            <td>
+              <span style="font-weight: bold; color: #38bdf8">${effPct}%</span>
+              <div class="bar-container">
+                <div class="bar-fill" style="width: ${effPct}%; background: #38bdf8"></div>
+              </div>
+            </td>
+            <td>
+              <span style="color: #fbbf24">${dayPct}%</span> / <span style="color: #818cf8">${nightPct}%</span>
+            </td>
+            <td>
+              <span style="color: #94a3b8">${dryPct}%</span> / <span style="color: #22d3ee">${puddlePct}%</span>
+            </td>
+            <td>
+              <span style="font-weight: bold; color: #34d399">${utilPct}%</span>
+              <div class="bar-container">
+                <div class="bar-fill" style="width: ${utilPct}%; background: #34d399"></div>
+              </div>
+            </td>
+            <td style="font-family: monospace; color: #f59e0b">
+              ${r.cer.toFixed(2)}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        // Render Distance Breakdown Table
+        const tDist = document.getElementById("tableDistBreakdown");
+        tDist.innerHTML = `
+          <thead>
+            <tr>
+              <th>Sensor</th>
+              <th>3.0m (&theta;*)</th>
+              <th>6.0m (&theta;*)</th>
+              <th>9.0m (&theta;*)</th>
+              <th>12.0m (&theta;*)</th>
+              <th>15.0m (&theta;*)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${benchmarkResults.map(r => `
+              <tr>
+                <td><span class="badge ${r.badgeCls}">${r.name}</span></td>
+                <td><b>${(r.avgDist[3.0]*100).toFixed(1)}%</b> <span style="font-size:0.68rem; color:#64748b">(${r.optAngles[3.0]}°)</span></td>
+                <td><b>${(r.avgDist[6.0]*100).toFixed(1)}%</b> <span style="font-size:0.68rem; color:#64748b">(${r.optAngles[6.0]}°)</span></td>
+                <td><b>${(r.avgDist[9.0]*100).toFixed(1)}%</b> <span style="font-size:0.68rem; color:#64748b">(${r.optAngles[9.0]}°)</span></td>
+                <td><b>${(r.avgDist[12.0]*100).toFixed(1)}%</b> <span style="font-size:0.68rem; color:#64748b">(${r.optAngles[12.0]}°)</span></td>
+                <td><b>${(r.avgDist[15.0]*100).toFixed(1)}%</b> <span style="font-size:0.68rem; color:#64748b">(${r.optAngles[15.0]}°)</span></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        `;
+
+        // Render Time of Day Breakdown Table
+        const tTod = document.getElementById("tableTodBreakdown");
+        tTod.innerHTML = `
+          <thead>
+            <tr>
+              <th>Sensor</th>
+              <th>Day Mode (Ambient Sun)</th>
+              <th>Night Mode (Headlights)</th>
+              <th>Night Retention Ratio</th>
+              <th>Lighting Immunity Factor</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${benchmarkResults.map(r => {
+              const day = r.avgTod.day * 100;
+              const night = r.avgTod.night * 100;
+              const ratio = day > 0 ? (night / day) * 100 : 100;
+              return `
+                <tr>
+                  <td><span class="badge ${r.badgeCls}">${r.name}</span></td>
+                  <td style="color: #fbbf24; font-weight: bold">${day.toFixed(1)}%</td>
+                  <td style="color: #818cf8; font-weight: bold">${night.toFixed(1)}%</td>
+                  <td style="font-family: monospace">${ratio.toFixed(1)}%</td>
+                  <td>${ratio >= 98 ? '<span style="color:#34d399">100% Invariant (Active/Thermal)</span>' : '<span style="color:#f43f5e">Attenuated by Darkness</span>'}</td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        `;
+
+        // Render Water Level Breakdown Table
+        const tWater = document.getElementById("tableWaterBreakdown");
+        tWater.innerHTML = `
+          <thead>
+            <tr>
+              <th>Sensor</th>
+              <th>0% (Dry Cavity)</th>
+              <th>25% (Shallow Wet)</th>
+              <th>50% (Half-Filled)</th>
+              <th>100% (Brim Puddle)</th>
+              <th>Water Interaction Behavior</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${benchmarkResults.map(r => {
+              const w0 = (r.avgWater[0.0] * 100).toFixed(1);
+              const w25 = (r.avgWater[0.25] * 100).toFixed(1);
+              const w50 = (r.avgWater[0.50] * 100).toFixed(1);
+              const w100 = (r.avgWater[1.0] * 100).toFixed(1);
+              let note = "";
+              if (r.id === "swir") note = '<span style="color:#22d3ee">Strong 1550nm Absorption (+22% boost)</span>';
+              else if (r.id === "radar") note = '<span style="color:#a855f7">Dielectric &epsilon;<sub>r</sub>=81 Specular Boundary (+10%)</span>';
+              else if (r.id === "lidar") note = '<span style="color:#f43f5e">Forward Specular Scatter (-14% drop)</span>';
+              else if (r.id === "thermal") note = '<span style="color:#34d399">Evaporative & Sky-Reflective Radiometric &Delta;T</span>';
+              else note = '<span style="color:#e2e8f0">Surface Glint & Reflection Sheen</span>';
+              return `
+                <tr>
+                  <td><span class="badge ${r.badgeCls}">${r.name}</span></td>
+                  <td>${w0}%</td>
+                  <td>${w25}%</td>
+                  <td>${w50}%</td>
+                  <td style="font-weight: bold">${w100}%</td>
+                  <td>${note}</td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        `;
+      }
+
+      // ── Main Update Loop ──────────────────────────────────────────────
+      function update() {
+        const { segments, waterSegment } = generateRoadSegments();
+
+        // Sensor mount origins on vehicle
+        const lidarX =
+          world.car.x + (world.car.mount === "bumper" ? 0.2 : -0.5);
+        const lidarY = world.car.sensorOffsetY;
+
+        const camX = lidarX + world.camera.mountOffsetX;
+        const camY = lidarY + world.camera.mountOffsetY;
+
+        const radarX = lidarX + world.radar.mountOffsetX;
+        const radarY = lidarY + world.radar.mountOffsetY;
+
+        const swirX = lidarX + world.swir.mountOffsetX;
+        const swirY = lidarY + world.swir.mountOffsetY;
+
+        const thX = lidarX + world.thermal.mountOffsetX;
+        const thY = lidarY + world.thermal.mountOffsetY;
+
+        // ── 1. Fire LiDAR Rays (only if enabled) ──
+        const minAngle = world.lidar.pitch - world.lidar.fov / 2;
+        const maxAngle = world.lidar.pitch + world.lidar.fov / 2;
+        const hits = [];
+        let bottomHits = 0;
+
+        if (lidarEnabled) {
+          for (let i = 0; i < world.lidar.channels; i++) {
+            const angle =
+              world.lidar.channels === 1
+                ? minAngle
+                : minAngle +
+                  (i / (world.lidar.channels - 1)) * (maxAngle - minAngle);
+            const rayEnd = {
+              x: lidarX + Math.cos(angle) * world.lidar.range,
+              y: lidarY + Math.sin(angle) * world.lidar.range,
+            };
+
+            let closestHit = null;
+            let hitSeg = null;
+
+            for (let s = 0; s < segments.length; s++) {
+              const hit = getIntersection(
+                { x: lidarX, y: lidarY },
+                rayEnd,
+                segments[s].p1,
+                segments[s].p2,
+              );
+              if (hit && (!closestHit || hit.dist < closestHit.dist)) {
+                closestHit = hit;
+                hitSeg = segments[s];
+              }
+            }
+
+            // Check water surface if water present
+            // Water causes specular forward reflection away from receiver at shallow angles
+            let isWaterHit = false;
+            if (waterSegment) {
+              const wHit = getIntersection(
+                { x: lidarX, y: lidarY },
+                rayEnd,
+                waterSegment.p1,
+                waterSegment.p2,
+              );
+              if (wHit && (!closestHit || wHit.dist < closestHit.dist)) {
+                closestHit = wHit;
+                hitSeg = waterSegment;
+                isWaterHit = true;
+              }
+            }
+
+            if (closestHit && hitSeg) {
+              const isFloor = hitSeg.type === "floor";
+              // Specular loss on water means beam scatters away (void)
+              if (isFloor && !isWaterHit) bottomHits++;
+              hits.push({
+                x: closestHit.x,
+                y: closestHit.y,
+                angle: angle,
+                isFloor: isFloor && !isWaterHit,
+                isWater: isWaterHit,
+                relX: closestHit.x - lidarX,
+                relY: closestHit.y,
+              });
+            }
+          }
+        }
+
+        // ── 2. Evaluate Camera ──
+        const nullCamResult = {
+          lipInFrustum: false,
+          bottomInFrustum: false,
+          inRange: false,
+          distToLip: 0,
+          pixelCoverage: 0,
+          topAngle: 0,
+          botAngle: 0,
+          textureScore: 0,
+          edgeScore: 0,
+          depthEstScore: 0,
+        };
+        const camResult = cameraEnabled
+          ? evaluateCamera(camX, camY, segments, waterSegment)
+          : nullCamResult;
+
+        // ── 3. Evaluate 4D Imaging Radar ──
+        const nullRadarResult = {
+          hits: [],
+          cavityHits: 0,
+          peakRcs: -22.0,
+          hasRearWallHit: false,
+          detectedDepth: 0,
+          distToPothole: 0,
+          inRange: false,
+          elevationScore: 0,
+          rcsScore: 0,
+          dopplerScore: 0,
+        };
+        const radarResult = radarEnabled
+          ? evaluateRadar(radarX, radarY, segments, waterSegment)
+          : nullRadarResult;
+
+        // ── 4. Evaluate Gated SWIR ──
+        const nullSwirResult = {
+          inGate: false,
+          inRange: false,
+          distToPothole: 0,
+          gateScore: 0,
+          contrastRatio: 1.0,
+          waterAbsorptionPct: 0,
+          gateMin: world.swir.gateStart,
+          gateMax: world.swir.gateStart + world.swir.gateWidth,
+        };
+        const swirResult = swirEnabled
+          ? evaluateSwir(swirX, swirY, segments, waterSegment)
+          : nullSwirResult;
+
+        // ── 5. Evaluate Thermal LWIR ──
+        const nullThermalResult = {
+          inRange: false,
+          distToPothole: 0,
+          roadTemp: 20.0,
+          cavityTemp: 20.0,
+          deltaT: 0,
+          absDeltaT: 0,
+          thermalScore: 0,
+          netd: world.thermal.netd,
+        };
+        const thermalResult = thermalEnabled
+          ? evaluateThermal(thX, thY, segments, waterSegment)
+          : nullThermalResult;
+
+        // ── 6. Multi-Modal 5-Sensor Fusion ──
+        const fusion = fusionDecision(
+          lidarEnabled ? bottomHits : -1,
+          world.lidar.channels,
+          camResult,
+          radarResult,
+          swirResult,
+          thermalResult,
+          lidarEnabled,
+          cameraEnabled,
+          radarEnabled,
+          swirEnabled,
+          thermalEnabled,
+        );
+
+        // ── 7. Render Top-View Scene ──
+        renderSim(
+          lidarX,
+          lidarY,
+          camX,
+          camY,
+          radarX,
+          radarY,
+          swirX,
+          swirY,
+          thX,
+          thY,
+          segments,
+          waterSegment,
+          hits,
+          camResult,
+          radarResult,
+          swirResult,
+          thermalResult,
+        );
+
+        // ── 8. Render 3-Slot Sensor Dashboard Bar ──
+        for (let i = 0; i < 3; i++) {
+          const sType = activeSlots[i];
+          const ctx = slotContexts[i];
+          const canvas = slotCanvases[i];
+          if (!ctx || !canvas) continue;
+
+          const enabled = isSensorEnabled(sType);
+          if (!enabled) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            continue;
+          }
+
+          if (sType === "lidar") {
+            renderScope(ctx, canvas, hits, lidarX);
+          } else if (sType === "radar") {
+            renderRadarScope(ctx, canvas, radarResult.hits, radarX);
+          } else if (sType === "camera") {
+            renderCamera(ctx, canvas, camX, camY, segments, waterSegment, camResult);
+          } else if (sType === "swir") {
+            renderSwir(ctx, canvas, swirX, swirY, segments, waterSegment, swirResult);
+          } else if (sType === "thermal") {
+            renderThermal(ctx, canvas, thX, thY, segments, waterSegment, thermalResult);
+          }
+        }
+
+        // ── 9. Telemetry & UI Updates ──
+        updateTelemetry(
+          bottomHits,
+          lidarX,
+          lidarY,
+          radarResult,
+          radarX,
+          radarY,
+          swirResult,
+          thermalResult,
+        );
+        updateFusionUI(fusion, camResult, radarResult, swirResult, thermalResult);
+        updateCostUI();
+
+        requestAnimationFrame(update);
+      }
+
+      let isDraggingCar = false;
+      let dragMode = "x"; // "x" or "height"
+      let isHoveringRoof = false;
+      let isHoveringBody = false;
+
+      function toScreen(x, y) {
+        return {
+          x: x * world.scale,
+          y: world.roadY - y * world.scale,
+        };
+      }
+
+      // ── Render Top-View Scene (with Day/Night & Headlights) ───────────
+      function renderSim(
+        lx,
+        ly,
+        cx,
+        cy,
+        rx,
+        ry,
+        sx,
+        sy,
+        tx,
+        ty,
+        segments,
+        waterSegment,
+        hits,
+        camResult,
+        radarResult,
+        swirResult,
+        thermalResult,
+      ) {
+        ctxSim.clearRect(0, 0, simCanvas.width, simCanvas.height);
+        const isNight = world.timeOfDay === "night";
+
+        // Night background & ambient lighting
+        if (isNight) {
+          ctxSim.fillStyle = "#030712";
+          ctxSim.fillRect(0, 0, simCanvas.width, simCanvas.height);
+
+          // Stars in night sky
+          ctxSim.fillStyle = "rgba(255, 255, 255, 0.4)";
+          for (let st = 0; st < 30; st++) {
+            const starX = (st * 79.3) % simCanvas.width;
+            const starY = (st * 37.1) % (world.roadY - 60);
+            ctxSim.fillRect(starX, starY, 1.5, 1.5);
+          }
+        }
+
+        // Grid
+        ctxSim.strokeStyle = isNight ? "#0f172a" : "#1e293b";
+        ctxSim.lineWidth = 1;
+        for (let x = 0; x < 45; x += 2) {
+          const sp = toScreen(x, 0);
+          ctxSim.beginPath();
+          ctxSim.moveTo(sp.x, 0);
+          ctxSim.lineTo(sp.x, simCanvas.height);
+          ctxSim.stroke();
+        }
+
+        // ── Vehicle Headlight Illumination Cone at Night ──
+        if (isNight) {
+          const hlHeightM = Math.min(0.85, Math.max(0.38, world.car.height * 0.32));
+          const hlOrigin = toScreen(world.car.x + 0.2, hlHeightM);
+          const hlDistance = 24.0 * world.scale;
+          const hlAngleTop = -0.05;
+          const hlAngleBot = -0.22;
+
+          const hlGrad = ctxSim.createRadialGradient(
+            hlOrigin.x,
+            hlOrigin.y,
+            10,
+            hlOrigin.x + hlDistance * 0.7,
+            hlOrigin.y,
+            hlDistance,
+          );
+          hlGrad.addColorStop(0, "rgba(254, 240, 138, 0.22)");
+          hlGrad.addColorStop(0.6, "rgba(254, 240, 138, 0.08)");
+          hlGrad.addColorStop(1, "rgba(254, 240, 138, 0)");
+
+          ctxSim.fillStyle = hlGrad;
+          ctxSim.beginPath();
+          ctxSim.moveTo(hlOrigin.x, hlOrigin.y);
+          ctxSim.lineTo(hlOrigin.x + Math.cos(hlAngleTop) * hlDistance, hlOrigin.y - Math.sin(hlAngleTop) * hlDistance);
+          ctxSim.lineTo(hlOrigin.x + Math.cos(hlAngleBot) * hlDistance, hlOrigin.y - Math.sin(hlAngleBot) * hlDistance);
+          ctxSim.closePath();
+          ctxSim.fill();
+        }
+
+        // ── 4D Radar elevation lobe ──
+        const radScr = toScreen(rx, ry);
+        if (radarEnabled) {
+          const halfRadFov = world.radar.fov / 2;
+          const radTopAngle = world.radar.pitch + halfRadFov;
+          const radBotAngle = world.radar.pitch - halfRadFov;
+          const radFrustLen = world.radar.range * world.scale;
+
+          const radTopEnd = {
+            x: radScr.x + Math.cos(radTopAngle) * radFrustLen,
+            y: radScr.y - Math.sin(radTopAngle) * radFrustLen,
+          };
+          const radBotEnd = {
+            x: radScr.x + Math.cos(radBotAngle) * radFrustLen,
+            y: radScr.y - Math.sin(radBotAngle) * radFrustLen,
+          };
+
+          ctxSim.fillStyle = "rgba(168, 85, 247, 0.07)";
+          ctxSim.beginPath();
+          ctxSim.moveTo(radScr.x, radScr.y);
+          ctxSim.lineTo(radTopEnd.x, radTopEnd.y);
+          ctxSim.lineTo(radBotEnd.x, radBotEnd.y);
+          ctxSim.closePath();
+          ctxSim.fill();
+
+          ctxSim.strokeStyle = "rgba(168, 85, 247, 0.35)";
+          ctxSim.lineWidth = 1;
+          ctxSim.setLineDash([4, 4]);
+          ctxSim.beginPath();
+          ctxSim.moveTo(radScr.x, radScr.y);
+          ctxSim.lineTo(radTopEnd.x, radTopEnd.y);
+          ctxSim.moveTo(radScr.x, radScr.y);
+          ctxSim.lineTo(radBotEnd.x, radBotEnd.y);
+          ctxSim.stroke();
+          ctxSim.setLineDash([]);
+        }
+
+        // ── Gated SWIR Laser Pulse Slice ──
+        const swirScr = toScreen(sx, sy);
+        if (swirEnabled) {
+          const swGateStartPx = world.swir.gateStart * world.scale;
+          const swGateEndPx = (world.swir.gateStart + world.swir.gateWidth) * world.scale;
+          const swTopAngle = world.swir.pitch + world.swir.fov / 2;
+          const swBotAngle = world.swir.pitch - world.swir.fov / 2;
+
+          // Highlighted gated slice
+          ctxSim.fillStyle = "rgba(6, 182, 212, 0.12)";
+          ctxSim.beginPath();
+          ctxSim.moveTo(swirScr.x + Math.cos(swTopAngle) * swGateStartPx, swirScr.y - Math.sin(swTopAngle) * swGateStartPx);
+          ctxSim.lineTo(swirScr.x + Math.cos(swTopAngle) * swGateEndPx, swirScr.y - Math.sin(swTopAngle) * swGateEndPx);
+          ctxSim.lineTo(swirScr.x + Math.cos(swBotAngle) * swGateEndPx, swirScr.y - Math.sin(swBotAngle) * swGateEndPx);
+          ctxSim.lineTo(swirScr.x + Math.cos(swBotAngle) * swGateStartPx, swirScr.y - Math.sin(swBotAngle) * swGateStartPx);
+          ctxSim.closePath();
+          ctxSim.fill();
+
+          ctxSim.strokeStyle = "rgba(6, 182, 212, 0.6)";
+          ctxSim.lineWidth = 1.5;
+          ctxSim.stroke();
+        }
+
+        // ── Camera frustum ──
+        const camScr = toScreen(cx, cy);
+        if (cameraEnabled) {
+          const halfFov = world.camera.fov / 2;
+          const camTopAngle = world.camera.pitch + halfFov;
+          const camBotAngle = world.camera.pitch - halfFov;
+          const frustLen = world.camera.range * world.scale;
+
+          const topEnd = {
+            x: camScr.x + Math.cos(camTopAngle) * frustLen,
+            y: camScr.y - Math.sin(camTopAngle) * frustLen,
+          };
+          const botEnd = {
+            x: camScr.x + Math.cos(camBotAngle) * frustLen,
+            y: camScr.y - Math.sin(camBotAngle) * frustLen,
+          };
+
+          ctxSim.fillStyle = isNight ? "rgba(245, 158, 11, 0.03)" : "rgba(245, 158, 11, 0.06)";
+          ctxSim.beginPath();
+          ctxSim.moveTo(camScr.x, camScr.y);
+          ctxSim.lineTo(topEnd.x, topEnd.y);
+          ctxSim.lineTo(botEnd.x, botEnd.y);
+          ctxSim.closePath();
+          ctxSim.fill();
+
+          ctxSim.strokeStyle = "rgba(245, 158, 11, 0.3)";
+          ctxSim.lineWidth = 1;
+          ctxSim.setLineDash([6, 4]);
+          ctxSim.beginPath();
+          ctxSim.moveTo(camScr.x, camScr.y);
+          ctxSim.lineTo(topEnd.x, topEnd.y);
+          ctxSim.moveTo(camScr.x, camScr.y);
+          ctxSim.lineTo(botEnd.x, botEnd.y);
+          ctxSim.stroke();
+          ctxSim.setLineDash([]);
+        }
+
+        // ── Road Geometry Fill & Lines ──
+        ctxSim.fillStyle = isNight ? "#090d16" : "#0f172a";
+        const groundStart = toScreen(0, 0);
+        ctxSim.beginPath();
+        ctxSim.moveTo(0, simCanvas.height);
+        ctxSim.lineTo(0, groundStart.y);
+        for (let seg of segments) {
+          const p2 = toScreen(seg.p2.x, seg.p2.y);
+          ctxSim.lineTo(p2.x, p2.y);
+        }
+        ctxSim.lineTo(simCanvas.width, groundStart.y);
+        ctxSim.lineTo(simCanvas.width, simCanvas.height);
+        ctxSim.closePath();
+        ctxSim.fill();
+
+        // Road Surface Line
+        ctxSim.strokeStyle = isNight ? "#334155" : "#64748b";
+        ctxSim.lineWidth = 3;
+        ctxSim.beginPath();
+        for (let seg of segments) {
+          const s1 = toScreen(seg.p1.x, seg.p1.y);
+          const s2 = toScreen(seg.p2.x, seg.p2.y);
+          ctxSim.moveTo(s1.x, s1.y);
+          ctxSim.lineTo(s2.x, s2.y);
+        }
+        ctxSim.stroke();
+
+        // ── Standing Water Layer (if water present) ──
+        if (waterSegment) {
+          const ws1 = toScreen(waterSegment.p1.x, waterSegment.waterY);
+          const ws2 = toScreen(waterSegment.p2.x, waterSegment.waterY);
+          const wBot = toScreen(world.pothole.x + world.pothole.width / 2, -world.pothole.depth);
+
+          // Water pool fill
+          ctxSim.fillStyle = "rgba(6, 182, 212, 0.35)";
+          ctxSim.beginPath();
+          ctxSim.moveTo(ws1.x, ws1.y);
+          ctxSim.lineTo(ws2.x, ws2.y);
+          ctxSim.lineTo(ws2.x, wBot.y);
+          ctxSim.lineTo(ws1.x, wBot.y);
+          ctxSim.closePath();
+          ctxSim.fill();
+
+          // Water surface line
+          ctxSim.strokeStyle = "rgba(34, 211, 238, 0.9)";
+          ctxSim.lineWidth = 2;
+          ctxSim.beginPath();
+          ctxSim.moveTo(ws1.x, ws1.y);
+          ctxSim.lineTo(ws2.x, ws2.y);
+          ctxSim.stroke();
+
+          ctxSim.font = "bold 8px monospace";
+          ctxSim.fillStyle = "#22d3ee";
+          ctxSim.fillText("WATER", (ws1.x + ws2.x) / 2 - 14, ws1.y - 4);
+        }
+
+        // ── Vehicle Chassis & Height Dimension ──
+        const carScreen = toScreen(world.car.x - world.car.width, 0);
+        const carW = world.car.width * world.scale;
+        const carH = world.car.height * world.scale;
+        const roofScreenY = carScreen.y - carH;
+
+        // Vehicle main body
+        ctxSim.fillStyle = isNight ? "#111827" : "#1e293b";
+        ctxSim.strokeStyle = isHoveringBody ? "#38bdf8" : "#0284c7";
+        ctxSim.lineWidth = isHoveringBody ? 2.5 : 2;
+        ctxSim.fillRect(carScreen.x, roofScreenY, carW, carH);
+        ctxSim.strokeRect(carScreen.x, roofScreenY, carW, carH);
+
+        // Tinted cabin windows
+        const winMargin = 4;
+        const winTop = roofScreenY + winMargin;
+        const winHeight = carH * 0.40;
+        const winLeft = carScreen.x + carW * 0.20;
+        const winWidth = carW * 0.58;
+        if (winHeight > 10) {
+          ctxSim.fillStyle = isNight ? "rgba(15, 23, 42, 0.85)" : "rgba(56, 189, 248, 0.22)";
+          ctxSim.strokeStyle = "rgba(56, 189, 248, 0.4)";
+          ctxSim.lineWidth = 1;
+          ctxSim.fillRect(winLeft, winTop, winWidth, winHeight);
+          ctxSim.strokeRect(winLeft, winTop, winWidth, winHeight);
+        }
+
+        // Roof Mount Pod or Bumper Bracket
+        if (world.car.mount === "roof") {
+          const rackX = carScreen.x + carW * 0.82;
+          const rackY = roofScreenY - 7;
+          ctxSim.fillStyle = "#475569";
+          ctxSim.fillRect(rackX - 10, rackY, 20, 7);
+          ctxSim.strokeStyle = "#94a3b8";
+          ctxSim.lineWidth = 1;
+          ctxSim.strokeRect(rackX - 10, rackY, 20, 7);
+        } else {
+          const bumpX = carScreen.x + carW;
+          const bumpY = carScreen.y - world.car.sensorOffsetY * world.scale - 4;
+          ctxSim.fillStyle = "#475569";
+          ctxSim.fillRect(bumpX - 2, bumpY, 7, 8);
+        }
+
+        // Vehicle Wheels
+        const wheelR = Math.min(13, Math.max(8, carH * 0.16));
+        ctxSim.fillStyle = "#0f172a";
+        ctxSim.strokeStyle = "#475569";
+        ctxSim.lineWidth = 2;
+        ctxSim.beginPath();
+        ctxSim.arc(carScreen.x + carW * 0.2, carScreen.y, wheelR, 0, Math.PI * 2);
+        ctxSim.fill();
+        ctxSim.stroke();
+        ctxSim.beginPath();
+        ctxSim.arc(carScreen.x + carW * 0.8, carScreen.y, wheelR, 0, Math.PI * 2);
+        ctxSim.fill();
+        ctxSim.stroke();
+
+        // Headlight Lamp Glow on Vehicle front
+        const hlHeightM = Math.min(0.85, Math.max(0.38, world.car.height * 0.32));
+        const hlX = carScreen.x + carW;
+        const hlY = carScreen.y - hlHeightM * world.scale;
+        ctxSim.fillStyle = isNight ? "#fef08a" : "#cbd5e1";
+        ctxSim.beginPath();
+        ctxSim.arc(hlX, hlY, 4, 0, Math.PI * 2);
+        ctxSim.fill();
+
+        // Roof Drag Highlight & Handle Pill
+        if (isHoveringRoof || (isDraggingCar && dragMode === "height")) {
+          ctxSim.strokeStyle = "#38bdf8";
+          ctxSim.lineWidth = 2.5;
+          ctxSim.setLineDash([4, 4]);
+          ctxSim.beginPath();
+          ctxSim.moveTo(carScreen.x, roofScreenY);
+          ctxSim.lineTo(carScreen.x + carW, roofScreenY);
+          ctxSim.stroke();
+          ctxSim.setLineDash([]);
+
+          ctxSim.fillStyle = "#0284c7";
+          ctxSim.fillRect(carScreen.x + carW / 2 - 28, roofScreenY - 14, 56, 16);
+          ctxSim.font = "bold 9px monospace";
+          ctxSim.fillStyle = "#ffffff";
+          ctxSim.textAlign = "center";
+          ctxSim.fillText(`↕ ${world.car.height.toFixed(2)}m`, carScreen.x + carW / 2, roofScreenY - 2);
+          ctxSim.textAlign = "left";
+        }
+
+        // Height Dimension Line on vehicle rear
+        const dimX = carScreen.x - 14;
+        ctxSim.strokeStyle = isHoveringRoof ? "#38bdf8" : "#64748b";
+        ctxSim.lineWidth = 1;
+        ctxSim.beginPath();
+        ctxSim.moveTo(dimX, carScreen.y);
+        ctxSim.lineTo(dimX, roofScreenY);
+        ctxSim.moveTo(dimX - 4, roofScreenY);
+        ctxSim.lineTo(dimX + 4, roofScreenY);
+        ctxSim.moveTo(dimX - 4, carScreen.y);
+        ctxSim.lineTo(dimX + 4, carScreen.y);
+        ctxSim.stroke();
+
+        ctxSim.save();
+        ctxSim.translate(dimX - 5, (carScreen.y + roofScreenY) / 2);
+        ctxSim.rotate(-Math.PI / 2);
+        ctxSim.font = "9px monospace";
+        ctxSim.fillStyle = isHoveringRoof ? "#38bdf8" : "#94a3b8";
+        ctxSim.textAlign = "center";
+        ctxSim.fillText(`H: ${world.car.height.toFixed(2)}m`, 0, 0);
+        ctxSim.restore();
+
+        // ── Sensor Dots & Labels ──
+        const sensorScreen = toScreen(lx, ly);
+        const thScr = toScreen(tx, ty);
+
+        // 1. LiDAR Dot
+        if (lidarEnabled) {
+          ctxSim.fillStyle = "#38bdf8";
+          ctxSim.beginPath();
+          ctxSim.arc(sensorScreen.x, sensorScreen.y, 5.5, 0, Math.PI * 2);
+          ctxSim.fill();
+        }
+
+        // 2. Camera Dot
+        if (cameraEnabled) {
+          ctxSim.fillStyle = "#f59e0b";
+          ctxSim.beginPath();
+          ctxSim.arc(camScr.x, camScr.y, 4.5, 0, Math.PI * 2);
+          ctxSim.fill();
+        }
+
+        // 3. 4D Radar Dot
+        if (radarEnabled) {
+          ctxSim.fillStyle = "#a855f7";
+          ctxSim.beginPath();
+          ctxSim.arc(radScr.x, radScr.y, 4.5, 0, Math.PI * 2);
+          ctxSim.fill();
+        }
+
+        // 4. SWIR Dot
+        if (swirEnabled) {
+          ctxSim.fillStyle = "#06b6d4";
+          ctxSim.beginPath();
+          ctxSim.arc(swirScr.x, swirScr.y, 4.5, 0, Math.PI * 2);
+          ctxSim.fill();
+        }
+
+        // 5. Thermal Dot
+        if (thermalEnabled) {
+          ctxSim.fillStyle = "#f43f5e";
+          ctxSim.beginPath();
+          ctxSim.arc(thScr.x, thScr.y, 4.5, 0, Math.PI * 2);
+          ctxSim.fill();
+        }
+
+        // Sensor labels on vehicle
+        ctxSim.font = "bold 9px monospace";
+        ctxSim.fillStyle = lidarEnabled ? "#38bdf8" : "#475569";
+        ctxSim.fillText("LiDAR", sensorScreen.x - 14, sensorScreen.y - 12);
+        ctxSim.fillStyle = cameraEnabled ? "#f59e0b" : "#475569";
+        ctxSim.fillText("CAM", camScr.x - 10, camScr.y - 22);
+        ctxSim.fillStyle = radarEnabled ? "#c084fc" : "#475569";
+        ctxSim.fillText("RADAR", radScr.x - 14, radScr.y + 16);
+
+        // ── LiDAR Rays & Point Cloud ──
+        for (let hit of hits) {
+          const hitScr = toScreen(hit.x, hit.y);
+          ctxSim.strokeStyle = hit.isFloor
+            ? "rgba(34, 197, 94, 0.4)"
+            : "rgba(56, 189, 248, 0.15)";
+          ctxSim.lineWidth = 1;
+          ctxSim.beginPath();
+          ctxSim.moveTo(sensorScreen.x, sensorScreen.y);
+          ctxSim.lineTo(hitScr.x, hitScr.y);
+          ctxSim.stroke();
+
+          ctxSim.fillStyle = hit.isFloor ? "#22c55e" : hit.isWater ? "#22d3ee" : "#38bdf8";
+          ctxSim.beginPath();
+          ctxSim.arc(hitScr.x, hitScr.y, hit.isFloor ? 3.5 : 2, 0, Math.PI * 2);
+          ctxSim.fill();
+        }
+
+        // ── 4D Radar Returns & Backscatter Peaks in Top-View ──
+        if (radarEnabled && radarResult && radarResult.hits) {
+          for (let rHit of radarResult.hits) {
+            const rScr = toScreen(rHit.x, rHit.y);
+            if (rHit.isRearWall) {
+              ctxSim.strokeStyle = "rgba(244, 114, 182, 0.9)";
+              ctxSim.lineWidth = 2;
+              ctxSim.beginPath();
+              ctxSim.arc(rScr.x, rScr.y, 7, 0, Math.PI * 2);
+              ctxSim.stroke();
+
+              ctxSim.fillStyle = "#f472b6";
+              ctxSim.beginPath();
+              ctxSim.arc(rScr.x, rScr.y, 4, 0, Math.PI * 2);
+              ctxSim.fill();
+
+              ctxSim.font = "bold 8px monospace";
+              ctxSim.fillStyle = "#f472b6";
+              ctxSim.fillText(`RCS +${rHit.rcs.toFixed(1)}dB`, rScr.x - 15, rScr.y - 12);
+            } else if (rHit.isCavity) {
+              ctxSim.fillStyle = "rgba(192, 132, 252, 0.7)";
+              ctxSim.beginPath();
+              ctxSim.arc(rScr.x, rScr.y, 3, 0, Math.PI * 2);
+              ctxSim.fill();
+            }
+          }
+        }
+      }
+
+      // ── Render LiDAR Scope ────────────────────────────────────────────
+      function renderScope(ctx, canvas, hits, lx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const w = canvas.width;
+        const h = canvas.height;
+
+        const zeroY = h * 0.6;
+        ctx.strokeStyle = "#334155";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, zeroY);
+        ctx.lineTo(w, zeroY);
+        ctx.stroke();
+
+        ctx.font = "9px monospace";
+        ctx.fillStyle = "#475569";
+        ctx.fillText("0m", 4, zeroY - 4);
+        ctx.fillText("Elev ↑", 4, 14);
+
+        const maxDist = 20;
+        const elevScale = 120;
+
+        hits.forEach((hit) => {
+          const dist = hit.relX;
+          if (dist < 0 || dist > maxDist) return;
+
+          const screenX = (dist / maxDist) * w;
+          const screenY = zeroY - hit.relY * elevScale;
+
+          ctx.fillStyle = hit.isFloor ? "#22c55e" : hit.isWater ? "#22d3ee" : "#38bdf8";
+          ctx.beginPath();
+          ctx.arc(screenX, screenY, hit.isFloor ? 4 : 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // Pothole ground truth region
+        const phRelX = world.pothole.x - lx;
+        if (phRelX > 0 && phRelX < maxDist) {
+          const x1 = (phRelX / maxDist) * w;
+          const x2 = ((phRelX + world.pothole.width) / maxDist) * w;
+          ctx.fillStyle = "rgba(239, 68, 68, 0.12)";
+          ctx.fillRect(x1, 0, x2 - x1, h);
+        }
+
+        // HUD overlay
+        ctx.font = "10px monospace";
+        ctx.fillStyle = "rgba(56, 189, 248, 0.85)";
+        ctx.fillText(`LiDAR ${world.lidar.channels}-CH | LOOKAHEAD POINT CLOUD`, 8, 14);
+      }
+
+      // ── Render 4D Imaging Radar Scope ─────────────────────────────────
+      function renderRadarScope(ctx, canvas, hits, rx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const w = canvas.width;
+        const h = canvas.height;
+
+        const zeroY = h * 0.6;
+        ctx.strokeStyle = "#334155";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, zeroY);
+        ctx.lineTo(w, zeroY);
+        ctx.stroke();
+
+        ctx.font = "9px monospace";
+        ctx.fillStyle = "#64748b";
+        ctx.fillText("0m", 4, zeroY - 4);
+        ctx.fillText("Elev (Z) ↑", 4, 14);
+
+        const maxDist = 20;
+        const elevScale = 120;
+
+        for (let d = 5; d <= maxDist; d += 5) {
+          const sx = (d / maxDist) * w;
+          ctx.strokeStyle = "#1e293b";
+          ctx.beginPath();
+          ctx.moveTo(sx, 0);
+          ctx.lineTo(sx, h);
+          ctx.stroke();
+          ctx.fillText(`${d}m`, sx - 10, h - 6);
+        }
+
+        // Pothole ground truth region
+        const phRelX = world.pothole.x - rx;
+        if (phRelX > 0 && phRelX < maxDist) {
+          const x1 = (phRelX / maxDist) * w;
+          const x2 = ((phRelX + world.pothole.width) / maxDist) * w;
+          ctx.fillStyle = "rgba(239, 68, 68, 0.1)";
+          ctx.fillRect(x1, 0, x2 - x1, h);
+        }
+
+        let peakTarget = null;
+        hits.forEach((hit) => {
+          const dist = hit.relX;
+          if (dist < 0 || dist > maxDist) return;
+
+          const screenX = (dist / maxDist) * w;
+          const screenY = zeroY - hit.relY * elevScale;
+
+          if (hit.isRearWall) {
+            ctx.fillStyle = "rgba(244, 114, 182, 0.25)";
+            ctx.beginPath();
+            ctx.ellipse(screenX, screenY, 9, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = "#f472b6";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(screenX, screenY, 6, 4, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = "#fff";
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            peakTarget = {
+              x: screenX,
+              y: screenY,
+              rcs: hit.rcs,
+            };
+          } else if (hit.isCavity) {
+            ctx.fillStyle = "#c084fc";
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.fillStyle = "rgba(168, 85, 247, 0.55)";
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, 2.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        });
+
+        if (peakTarget) {
+          ctx.strokeStyle = "#f472b6";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 2]);
+          ctx.strokeRect(peakTarget.x - 14, peakTarget.y - 14, 28, 28);
+          ctx.setLineDash([]);
+
+          ctx.font = "bold 9px monospace";
+          ctx.fillStyle = "#f472b6";
+          ctx.fillText(`CAVITY RCS: +${peakTarget.rcs.toFixed(1)} dBsm`, Math.max(8, peakTarget.x - 45), Math.max(26, peakTarget.y - 18));
+        }
+
+        ctx.font = "10px monospace";
+        ctx.fillStyle = "rgba(192, 132, 252, 0.85)";
+        ctx.fillText(`4D RADAR 77GHz MIMO | CH:${world.radar.channels} | BW:4GHz`, 8, 14);
+        ctx.fillText(`DOPPLER VELOCITY: ${(-world.radar.egoSpeed).toFixed(1)} m/s [STATIONARY ROAD]`, 8, 26);
+      }
+
+      // ── Render Synthetic Camera Feed ──────────────────────────────────
+      function renderCamera(ctx, canvas, cx, cy, segments, waterSegment, camResult) {
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        const cam = world.camera;
+        const ph = world.pothole;
+        const halfFov = cam.fov / 2;
+        const isNight = world.timeOfDay === "night";
+
+        // Sky gradient
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.45);
+        if (isNight) {
+          skyGrad.addColorStop(0, "#030611");
+          skyGrad.addColorStop(1, "#0a1122");
+        } else {
+          skyGrad.addColorStop(0, "#0c1524");
+          skyGrad.addColorStop(1, "#1a2744");
+        }
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, w, h * 0.45);
+
+        const horizonY = h * 0.45;
+
+        // Road gradient
+        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, h);
+        if (isNight) {
+          roadGrad.addColorStop(0, "#111624");
+          roadGrad.addColorStop(1, "#080c14");
+        } else {
+          roadGrad.addColorStop(0, "#2d3748");
+          roadGrad.addColorStop(1, "#1a202c");
+        }
+        ctx.fillStyle = roadGrad;
+        ctx.fillRect(0, horizonY, w, h - horizonY);
+
+        // Road markings (dashed center line)
+        ctx.strokeStyle = isNight ? "#2b3446" : "#4a5568";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([20, 30]);
+        ctx.beginPath();
+        ctx.moveTo(w / 2, horizonY);
+        ctx.lineTo(w / 2, h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Road edge lines
+        ctx.strokeStyle = isNight ? "#1e2838" : "#4a5568";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(w * 0.5, horizonY);
+        ctx.lineTo(0, h);
+        ctx.moveTo(w * 0.5, horizonY);
+        ctx.lineTo(w, h);
+        ctx.stroke();
+
+        // ── Perspective Pothole ──
+        const distToLip = ph.x - cx;
+        if (distToLip > 0 && distToLip < cam.range) {
+          const maxVisibleDist = cam.range;
+          const perspFactor = 1 - distToLip / maxVisibleDist;
+
+          const phScreenY =
+            horizonY +
+            (h - horizonY) * (1 - Math.pow(distToLip / maxVisibleDist, 0.6));
+
+          const angularWidth = Math.atan2(ph.width, distToLip);
+          const phScreenW = (angularWidth / cam.fov) * w;
+          const depthVisual = Math.min(ph.depth * 200 * perspFactor, phScreenW * 0.6);
+          const phScreenX = w / 2 - phScreenW / 2;
+
+          const angleToCenter = Math.atan2(-cy, distToLip);
+          const inFrustum =
+            angleToCenter <= cam.pitch + halfFov &&
+            angleToCenter >= cam.pitch - halfFov;
+
+          if (inFrustum && phScreenY > horizonY) {
+            // Pothole shadow/depression
+            ctx.fillStyle = isNight
+              ? `rgba(0, 0, 0, ${0.6 + perspFactor * 0.4})`
+              : `rgba(10, 12, 20, ${0.4 + perspFactor * 0.4})`;
+            ctx.beginPath();
+            ctx.ellipse(
+              phScreenX + phScreenW / 2,
+              phScreenY,
+              phScreenW / 2,
+              depthVisual / 2,
+              0,
+              0,
+              Math.PI * 2,
+            );
+            ctx.fill();
+
+            // Water reflection in camera view if water is present
+            if (ph.waterLevel > 0.05) {
+              const waterW = phScreenW * (0.85 + ph.waterLevel * 0.15);
+              const waterH = depthVisual * (0.5 + ph.waterLevel * 0.4);
+              const wGrad = ctx.createLinearGradient(0, phScreenY - waterH / 2, 0, phScreenY + waterH / 2);
+              wGrad.addColorStop(0, "rgba(34, 211, 238, 0.3)");
+              wGrad.addColorStop(1, isNight ? "rgba(10, 30, 50, 0.7)" : "rgba(15, 23, 42, 0.6)");
+              ctx.fillStyle = wGrad;
+              ctx.beginPath();
+              ctx.ellipse(phScreenX + phScreenW / 2, phScreenY, waterW / 2, waterH / 2, 0, 0, Math.PI * 2);
+              ctx.fill();
+            }
+
+            // Pothole rim highlight
+            ctx.strokeStyle = isNight
+              ? `rgba(254, 240, 138, ${0.25 + perspFactor * 0.35})`
+              : `rgba(200, 200, 210, ${0.2 + perspFactor * 0.3})`;
+            ctx.lineWidth = 1 + perspFactor;
+            ctx.beginPath();
+            ctx.ellipse(
+              phScreenX + phScreenW / 2,
+              phScreenY,
+              phScreenW / 2,
+              depthVisual / 2,
+              0,
+              0,
+              Math.PI * 2,
+            );
+            ctx.stroke();
+
+            // Detection overlay
+            if (camResult.textureScore > 0.15 || camResult.edgeScore > 0.15) {
+              const bboxPad = 8;
+              ctx.strokeStyle = "rgba(245, 158, 11, 0.85)";
+              ctx.lineWidth = 2;
+              ctx.setLineDash([4, 3]);
+              ctx.strokeRect(
+                phScreenX - bboxPad,
+                phScreenY - depthVisual / 2 - bboxPad,
+                phScreenW + bboxPad * 2,
+                depthVisual + bboxPad * 2,
+              );
+              ctx.setLineDash([]);
+
+              const avgScore = (camResult.textureScore + camResult.edgeScore + camResult.depthEstScore) / 3;
+              const labelText = `OPTICAL ANOMALY ${(avgScore * 100).toFixed(0)}%`;
+              ctx.font = "bold 11px monospace";
+              const textMetrics = ctx.measureText(labelText);
+              const labelX = phScreenX - bboxPad;
+              const labelY = phScreenY - depthVisual / 2 - bboxPad - 4;
+
+              ctx.fillStyle = "rgba(245, 158, 11, 0.9)";
+              ctx.fillRect(labelX, labelY - 12, textMetrics.width + 8, 15);
+              ctx.fillStyle = "#000";
+              ctx.fillText(labelText, labelX + 4, labelY);
+            }
+          }
+        }
+
+        // HUD Overlay
+        ctx.font = "10px monospace";
+        ctx.fillStyle = "rgba(245, 158, 11, 0.8)";
+        ctx.fillText(
+          `RGB CAM | FOV:${((cam.fov * 180) / Math.PI).toFixed(0)}° | ${isNight ? "NIGHT (HEADLIGHT ILLUM)" : "DAY AMBIENT"}`,
+          8,
+          14,
+        );
+        ctx.fillText(
+          `TARGET: ${camResult.inRange && camResult.lipInFrustum ? `${camResult.distToLip.toFixed(1)}m (PX:${camResult.pixelCoverage.toFixed(0)})` : "OUT OF VIEW"}`,
+          8,
+          26,
+        );
+      }
+
+      // ── Render Gated SWIR Feed (1550 nm) ──────────────────────────────
+      function renderSwir(ctx, canvas, sx, sy, segments, waterSegment, swirResult) {
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        const sw = world.swir;
+        const ph = world.pothole;
+        const horizonY = h * 0.45;
+
+        // SWIR Sky is very dark (minimal sky atmospheric emission at 1550nm)
+        ctx.fillStyle = "#02070e";
+        ctx.fillRect(0, 0, w, horizonY);
+
+        // Monochrome SWIR road surface with active pulsed laser illumination
+        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, h);
+        roadGrad.addColorStop(0, "#121a24");
+        roadGrad.addColorStop(1, "#263544");
+        ctx.fillStyle = roadGrad;
+        ctx.fillRect(0, horizonY, w, h - horizonY);
+
+        // Perspective road edges
+        ctx.strokeStyle = "rgba(6, 182, 212, 0.25)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(w * 0.5, horizonY);
+        ctx.lineTo(0, h);
+        ctx.moveTo(w * 0.5, horizonY);
+        ctx.lineTo(w, h);
+        ctx.stroke();
+
+        // ── Depth Gate Slice Window Indication ──
+        const distToPh = ph.x - sx;
+        const maxDist = sw.range;
+        const gMinY = horizonY + (h - horizonY) * (1 - Math.pow(Math.min(1, sw.gateStart / maxDist), 0.6));
+        const gMaxY = horizonY + (h - horizonY) * (1 - Math.pow(Math.min(1, (sw.gateStart + sw.gateWidth) / maxDist), 0.6));
+
+        // Gate zone highlight
+        ctx.fillStyle = "rgba(6, 182, 212, 0.08)";
+        ctx.fillRect(0, gMaxY, w, Math.max(2, gMinY - gMaxY));
+        ctx.strokeStyle = "rgba(6, 182, 212, 0.4)";
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, gMinY);
+        ctx.lineTo(w, gMinY);
+        ctx.moveTo(0, gMaxY);
+        ctx.lineTo(w, gMaxY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Pothole in SWIR view
+        if (distToPh > 0 && distToPh < maxDist) {
+          const phScreenY = horizonY + (h - horizonY) * (1 - Math.pow(distToPh / maxDist, 0.6));
+          const angularWidth = Math.atan2(ph.width, distToPh);
+          const phScreenW = (angularWidth / sw.fov) * w;
+          const depthVisual = Math.min(ph.depth * 200 * (1 - distToPh / maxDist), phScreenW * 0.6);
+          const phScreenX = w / 2 - phScreenW / 2;
+
+          if (phScreenY > horizonY) {
+            // Water absorption at 1550nm: water turns JET BLACK
+            if (ph.waterLevel > 0.05) {
+              ctx.fillStyle = "#000000"; // 100% absorption void
+              ctx.beginPath();
+              ctx.ellipse(phScreenX + phScreenW / 2, phScreenY, phScreenW / 2, depthVisual / 2, 0, 0, Math.PI * 2);
+              ctx.fill();
+
+              // Sharp absorption rim
+              ctx.strokeStyle = "rgba(6, 182, 212, 0.9)";
+              ctx.lineWidth = 2;
+              ctx.stroke();
+            } else {
+              // Dry pothole cavity shadow
+              ctx.fillStyle = "#050b12";
+              ctx.beginPath();
+              ctx.ellipse(phScreenX + phScreenW / 2, phScreenY, phScreenW / 2, depthVisual / 2, 0, 0, Math.PI * 2);
+              ctx.fill();
+            }
+
+            if (swirResult.inGate && swirResult.gateScore > 0.2) {
+              const bboxPad = 7;
+              ctx.strokeStyle = "rgba(6, 182, 212, 0.9)";
+              ctx.lineWidth = 2;
+              ctx.strokeRect(
+                phScreenX - bboxPad,
+                phScreenY - depthVisual / 2 - bboxPad,
+                phScreenW + bboxPad * 2,
+                depthVisual + bboxPad * 2,
+              );
+
+              ctx.font = "bold 10px monospace";
+              ctx.fillStyle = "rgba(6, 182, 212, 0.95)";
+              const lbl = ph.waterLevel > 0.05
+                ? `SWIR WATER ABSORPTION (${swirResult.contrastRatio.toFixed(1)}:1)`
+                : `SWIR GATE HIT (${(swirResult.gateScore * 100).toFixed(0)}%)`;
+              ctx.fillText(lbl, phScreenX - bboxPad, phScreenY - depthVisual / 2 - bboxPad - 4);
+            }
+          }
+        }
+
+        // HUD
+        ctx.font = "10px monospace";
+        ctx.fillStyle = "rgba(6, 182, 212, 0.9)";
+        ctx.fillText(
+          `GATED SWIR 1550nm | GATE:[${sw.gateStart.toFixed(1)}m - ${(sw.gateStart + sw.gateWidth).toFixed(1)}m] | ${sw.pulsePower}W PULSE`,
+          8,
+          14,
+        );
+        ctx.fillText(
+          `STATUS: ${swirResult.inGate ? "TARGET IN RANGE GATE" : "GATE REJECTED"} | WATER ABS:${swirResult.waterAbsorptionPct}%`,
+          8,
+          26,
+        );
+      }
+
+      // ── Render Thermal LWIR Feed (8-14 µm Radiometric) ────────────────
+      function renderThermal(ctx, canvas, tx, ty, segments, waterSegment, thermalResult) {
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        const th = world.thermal;
+        const ph = world.pothole;
+        const horizonY = h * 0.45;
+        const isDay = world.timeOfDay === "day";
+
+        // Color mapping function based on selected palette
+        function tempToColor(temp, minT, maxT) {
+          const t = Math.max(0, Math.min(1, (temp - minT) / (maxT - minT)));
+          if (th.palette === "whitehot") {
+            const v = Math.round(t * 255);
+            return `rgb(${v},${v},${v})`;
+          } else if (th.palette === "blackhot") {
+            const v = Math.round((1 - t) * 255);
+            return `rgb(${v},${v},${v})`;
+          }
+          // Ironbow Radiometric Heatmap:
+          // 0.0: deep violet (30, 0, 70)
+          // 0.25: dark blue/magenta (100, 0, 150)
+          // 0.5: crimson / red (220, 30, 50)
+          // 0.75: bright orange / amber (255, 140, 0)
+          // 1.0: yellow-white (255, 255, 200)
+          if (t < 0.25) {
+            const f = t / 0.25;
+            return `rgb(${Math.round(20 + f * 70)}, 0, ${Math.round(60 + f * 90)})`;
+          } else if (t < 0.5) {
+            const f = (t - 0.25) / 0.25;
+            return `rgb(${Math.round(90 + f * 130)}, ${Math.round(f * 35)}, ${Math.round(150 - f * 100)})`;
+          } else if (t < 0.75) {
+            const f = (t - 0.5) / 0.25;
+            return `rgb(${Math.round(220 + f * 35)}, ${Math.round(35 + f * 110)}, ${Math.round(50 - f * 50)})`;
+          } else {
+            const f = (t - 0.75) / 0.25;
+            return `rgb(255, ${Math.round(145 + f * 105)}, ${Math.round(f * 210)})`;
+          }
+        }
+
+        const minT = isDay ? 15.0 : 4.0;
+        const maxT = isDay ? 45.0 : 30.0;
+
+        // Radiometric Sky (Cold atmosphere: ~-10°C to 0°C -> mapped to minT)
+        ctx.fillStyle = tempToColor(minT, minT, maxT);
+        ctx.fillRect(0, 0, w, horizonY);
+
+        // Radiometric Road surface (asphalt temp)
+        const roadT = thermalResult.roadTemp;
+        ctx.fillStyle = tempToColor(roadT, minT, maxT);
+        ctx.fillRect(0, horizonY, w, h - horizonY);
+
+        // Perspective Road Edges
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(w * 0.5, horizonY);
+        ctx.lineTo(0, h);
+        ctx.moveTo(w * 0.5, horizonY);
+        ctx.lineTo(w, h);
+        ctx.stroke();
+
+        // ── Pothole Thermal Differential (ΔT) ──
+        const distToPh = ph.x - tx;
+        const maxDist = th.range;
+        if (distToPh > 0 && distToPh < maxDist) {
+          const phScreenY = horizonY + (h - horizonY) * (1 - Math.pow(distToPh / maxDist, 0.6));
+          const angularWidth = Math.atan2(ph.width, distToPh);
+          const phScreenW = (angularWidth / th.fov) * w;
+          const depthVisual = Math.min(ph.depth * 200 * (1 - distToPh / maxDist), phScreenW * 0.6);
+          const phScreenX = w / 2 - phScreenW / 2;
+
+          if (phScreenY > horizonY) {
+            // Pothole cavity thermal emission
+            const cavityT = thermalResult.cavityTemp;
+            ctx.fillStyle = tempToColor(cavityT, minT, maxT);
+            ctx.beginPath();
+            ctx.ellipse(phScreenX + phScreenW / 2, phScreenY, phScreenW / 2, depthVisual / 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Thermal rim contour
+            ctx.strokeStyle = tempToColor((cavityT + roadT) / 2, minT, maxT);
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Target detection box
+            if (thermalResult.thermalScore > 0.2) {
+              const bboxPad = 7;
+              ctx.strokeStyle = "rgba(244, 63, 94, 0.9)";
+              ctx.lineWidth = 2;
+              ctx.strokeRect(
+                phScreenX - bboxPad,
+                phScreenY - depthVisual / 2 - bboxPad,
+                phScreenW + bboxPad * 2,
+                depthVisual + bboxPad * 2,
+              );
+
+              ctx.font = "bold 10px monospace";
+              ctx.fillStyle = "#fb7185";
+              const sign = thermalResult.deltaT > 0 ? "+" : "";
+              ctx.fillText(
+                `ΔT: ${sign}${thermalResult.deltaT.toFixed(1)}°C (${(thermalResult.thermalScore * 100).toFixed(0)}%)`,
+                phScreenX - bboxPad,
+                phScreenY - depthVisual / 2 - bboxPad - 4,
+              );
+            }
+          }
+        }
+
+        // ── Radiometric Temperature Color Scale Bar (Right side) ──
+        const barW = 12;
+        const barH = h * 0.6;
+        const barX = w - barW - 10;
+        const barY = h * 0.2;
+
+        for (let py = 0; py < barH; py++) {
+          const frac = 1 - py / barH;
+          const tempVal = minT + frac * (maxT - minT);
+          ctx.fillStyle = tempToColor(tempVal, minT, maxT);
+          ctx.fillRect(barX, barY + py, barW, 1);
+        }
+        ctx.strokeStyle = "#475569";
+        ctx.strokeRect(barX, barY, barW, barH);
+
+        ctx.font = "8px monospace";
+        ctx.fillStyle = "#cbd5e1";
+        ctx.fillText(`${maxT.toFixed(0)}°C`, barX - 22, barY + 8);
+        ctx.fillText(`${((minT + maxT) / 2).toFixed(0)}°C`, barX - 22, barY + barH / 2 + 3);
+        ctx.fillText(`${minT.toFixed(0)}°C`, barX - 22, barY + barH);
+
+        // Center reticle
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(w / 2 - 8, h / 2);
+        ctx.lineTo(w / 2 + 8, h / 2);
+        ctx.moveTo(w / 2, h / 2 - 8);
+        ctx.lineTo(w / 2, h / 2 + 8);
+        ctx.stroke();
+
+        // HUD
+        ctx.font = "10px monospace";
+        ctx.fillStyle = "rgba(251, 113, 133, 0.9)";
+        ctx.fillText(
+          `THERMAL LWIR 8-14µm | NETD:${th.netd}mK | PALETTE:${th.palette.toUpperCase()}`,
+          8,
+          14,
+        );
+        ctx.fillText(
+          `ROAD:${roadT.toFixed(1)}°C | CAVITY:${thermalResult.cavityTemp.toFixed(1)}°C | ΔT:${thermalResult.deltaT > 0 ? "+" : ""}${thermalResult.deltaT.toFixed(1)}°C`,
+          8,
+          26,
+        );
+      }
+
+      // ── Telemetry Update (All 5 Sensors) ──────────────────────────────
+      function updateTelemetry(
+        bottomHits,
+        lx,
+        ly,
+        radarResult,
+        rx,
+        ry,
+        swirResult,
+        thermalResult,
+      ) {
+        // 1. LiDAR
+        const statusEl = document.getElementById("telStatus");
+        if (!lidarEnabled) {
+          document.getElementById("telDist").innerText = "— m";
+          document.getElementById("telHits").innerText = "—";
+          document.getElementById("telAngle").innerText = "—";
+          statusEl.className = "";
+          statusEl.style.color = "#475569";
+          statusEl.innerText = "SENSOR OFF";
+        } else {
+          statusEl.style.color = "";
+          const dist = (world.pothole.x - lx).toFixed(1);
+          document.getElementById("telDist").innerText = `${dist} m`;
+          document.getElementById("telHits").innerText = bottomHits;
+          const angleToLip = Math.atan2(ly, world.pothole.x - lx) * (180 / Math.PI);
+          document.getElementById("telAngle").innerText = `${angleToLip.toFixed(1)}°`;
+
+          if (bottomHits > 1) {
+            statusEl.className = "ok";
+            statusEl.innerText = `VOID CONFIRMED (${bottomHits} hits)`;
+          } else if (bottomHits === 1) {
+            statusEl.className = "warn";
+            statusEl.innerText = "WEAK VOID (1 hit)";
+          } else {
+            statusEl.className = "alert";
+            statusEl.innerText = "OCCLUDED (Specular / Shadow)";
+          }
+        }
+
+        // 2. 4D Radar
+        const radarStatusEl = document.getElementById("telRadarStatus");
+        const elRadarRcs = document.getElementById("telRadarRcs");
+        const elRadarDoppler = document.getElementById("telRadarDoppler");
+        const elRadarElev = document.getElementById("telRadarElev");
+
+        if (!radarEnabled) {
+          radarStatusEl.className = "";
+          radarStatusEl.style.color = "#475569";
+          radarStatusEl.innerText = "SENSOR OFF";
+          elRadarRcs.innerText = "— dBsm";
+          elRadarDoppler.innerText = "— m/s";
+          elRadarElev.innerText = "— m";
+        } else {
+          radarStatusEl.style.color = "";
+          elRadarRcs.innerText = `${radarResult.peakRcs >= 0 ? "+" : ""}${radarResult.peakRcs.toFixed(1)} dBsm`;
+          elRadarDoppler.innerText = `${(-world.radar.egoSpeed).toFixed(1)} m/s (Ground Lock)`;
+          elRadarElev.innerText =
+            radarResult.detectedDepth > 0
+              ? `-${radarResult.detectedDepth.toFixed(2)} m (Cavity Drop)`
+              : "0.00 m (Surface Return)";
+
+          if (radarResult.hasRearWallHit) {
+            radarStatusEl.className = "ok";
+            radarStatusEl.innerText = "CAVITY RETROREFLECTION CONFIRMED";
+          } else if (radarResult.cavityHits > 0) {
+            radarStatusEl.className = "warn";
+            radarStatusEl.innerText = "WEAK CAVITY RETURNS";
+          } else {
+            radarStatusEl.className = "alert";
+            radarStatusEl.innerText = "OCCLUDED / SPECULAR SCATTER";
+          }
+        }
+
+        // 3. Gated SWIR
+        const swirStatusEl = document.getElementById("telSwirStatus");
+        if (!swirEnabled) {
+          swirStatusEl.className = "";
+          swirStatusEl.style.color = "#475569";
+          swirStatusEl.innerText = "SENSOR OFF";
+          document.getElementById("telSwirGate").innerText = "—";
+          document.getElementById("telSwirWater").innerText = "—";
+          document.getElementById("telSwirContrast").innerText = "—";
+        } else {
+          swirStatusEl.style.color = "";
+          document.getElementById("telSwirGate").innerText =
+            `${swirResult.gateMin.toFixed(1)}m - ${swirResult.gateMax.toFixed(1)}m`;
+          document.getElementById("telSwirWater").innerText =
+            swirResult.waterAbsorptionPct > 0 ? `${swirResult.waterAbsorptionPct}% (STRONG ABS)` : "NONE (0%)";
+          document.getElementById("telSwirContrast").innerText =
+            `${swirResult.contrastRatio.toFixed(1)} : 1`;
+
+          if (swirResult.inGate) {
+            swirStatusEl.className = "ok";
+            swirStatusEl.innerText = "TARGET IN GATE (LOCKED)";
+          } else {
+            swirStatusEl.className = "warn";
+            swirStatusEl.innerText = "OUTSIDE RANGE GATE";
+          }
+        }
+
+        // 4. Thermal LWIR
+        const thermalStatusEl = document.getElementById("telThermalStatus");
+        if (!thermalEnabled) {
+          thermalStatusEl.className = "";
+          thermalStatusEl.style.color = "#475569";
+          thermalStatusEl.innerText = "SENSOR OFF";
+          document.getElementById("telThermalDeltaT").innerText = "— °C";
+          document.getElementById("telThermalTemp").innerText = "— °C";
+          document.getElementById("telThermalNetd").innerText = "— mK";
+        } else {
+          thermalStatusEl.style.color = "";
+          const sign = thermalResult.deltaT > 0 ? "+" : "";
+          document.getElementById("telThermalDeltaT").innerText =
+            `${sign}${thermalResult.deltaT.toFixed(1)} °C`;
+          document.getElementById("telThermalTemp").innerText =
+            `${thermalResult.cavityTemp.toFixed(1)} °C`;
+          document.getElementById("telThermalNetd").innerText =
+            `${thermalResult.netd} mK`;
+
+          if (thermalResult.thermalScore > 0.4) {
+            thermalStatusEl.className = "ok";
+            thermalStatusEl.innerText = "THERMAL SIGNATURE DETECTED";
+          } else if (thermalResult.thermalScore > 0.15) {
+            thermalStatusEl.className = "warn";
+            thermalStatusEl.innerText = "MARGINAL CONTRAST";
+          } else {
+            thermalStatusEl.className = "alert";
+            thermalStatusEl.innerText = "NO THERMAL ANOMALY";
+          }
+        }
+      }
+
+      // ── Fusion UI Update (10 Pipeline Steps) ──────────────────────────
+      function updateFusionUI(fusion, camResult, radarResult, swirResult, thermalResult) {
+        function fmtScore(score) {
+          return `${(score * 100).toFixed(0)}%`;
+        }
+        function scoreColor(score) {
+          if (score >= 0.65) return "#22c55e";
+          if (score >= 0.38) return "#eab308";
+          return "#ef4444";
+        }
+
+        function setStep(id, score) {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.innerText = fmtScore(score);
+          el.style.color = scoreColor(score);
+        }
+
+        setStep("fusLidar", fusion.lidarScore);
+        setStep("fusCamTex", fusion.texScore);
+        setStep("fusCamEdge", fusion.edgScore);
+        setStep("fusCamDepth", fusion.depScore);
+        setStep("fusRadarElev", fusion.radarElevScore);
+        setStep("fusRadarRcs", fusion.radarRcsScore);
+        setStep("fusRadarDoppler", fusion.radarDopplerScore);
+        setStep("fusSwir", fusion.swirScore);
+        setStep("fusThermal", fusion.thermalScore);
+        setStep("fusGeo", fusion.geoConsistency);
+
+        const elConf = document.getElementById("fusConf");
+        const elBar = document.getElementById("fusConfBar");
+        const elDecision = document.getElementById("fusDecision");
+        const fusionBox = document.getElementById("fusionBox");
+
+        const confPct = (fusion.fusedConfidence * 100).toFixed(1);
+        elConf.innerText = `${confPct}%`;
+        elConf.style.color = scoreColor(fusion.fusedConfidence);
+
+        elBar.style.width = `${confPct}%`;
+        elBar.style.background = scoreColor(fusion.fusedConfidence);
+
+        elDecision.innerText = fusion.decision;
+        if (fusion.decisionClass === "confirmed") {
+          elDecision.className = "ok";
+        } else if (fusion.decisionClass === "uncertain") {
+          elDecision.className = "warn";
+        } else {
+          elDecision.className = "alert";
+        }
+
+        fusionBox.className = `fusion-box ${fusion.decisionClass}`;
+      }
+
+      // ── Interactive Vehicle Dragging & Height Adjusting ────────────────
+      function getCarHitInfo(clientX, clientY) {
+        const rect = simCanvas.getBoundingClientRect();
+        const mx = (clientX - rect.left) / world.scale;
+        const my = (world.roadY - (clientY - rect.top)) / world.scale;
+        const carLeft = world.car.x - world.car.width;
+        const carRight = world.car.x;
+        const inX = mx >= carLeft - 0.25 && mx <= carRight + 0.25;
+        const nearRoof = inX && Math.abs(my - world.car.height) <= 0.32;
+        const inBody = inX && my >= -0.15 && my <= world.car.height;
+        return { mx, my, inX, nearRoof, inBody };
+      }
+
+      simCanvas.addEventListener("mousedown", (e) => {
+        const hit = getCarHitInfo(e.clientX, e.clientY);
+        if (hit.nearRoof) {
+          isDraggingCar = true;
+          dragMode = "height";
+        } else if (hit.inBody) {
+          isDraggingCar = true;
+          dragMode = "x";
+        }
+      });
+
+      window.addEventListener("mouseup", () => {
+        isDraggingCar = false;
+      });
+
+      simCanvas.addEventListener("mousemove", (e) => {
+        const hit = getCarHitInfo(e.clientX, e.clientY);
+
+        if (!isDraggingCar) {
+          if (hit.nearRoof) {
+            simCanvas.style.cursor = "ns-resize";
+            isHoveringRoof = true;
+            isHoveringBody = false;
+          } else if (hit.inBody) {
+            simCanvas.style.cursor = "ew-resize";
+            isHoveringRoof = false;
+            isHoveringBody = true;
+          } else {
+            simCanvas.style.cursor = "default";
+            isHoveringRoof = false;
+            isHoveringBody = false;
+          }
+          return;
+        }
+
+        if (dragMode === "height") {
+          const newH = Math.max(0.9, Math.min(3.5, hit.my));
+          world.car.height = Math.round(newH * 100) / 100;
+          if (carHInput) carHInput.value = world.car.height;
+          const valH = document.getElementById("valCarH");
+          if (valH) valH.innerText = `${world.car.height.toFixed(2)} m`;
+          updateMountHeight();
+          updatePresetButtonStates();
+        } else if (dragMode === "x") {
+          world.car.x = Math.max(2, Math.min(15, hit.mx));
+          carXInput.value = world.car.x;
+          document.getElementById("valCarX").innerText =
+            `${world.car.x.toFixed(1)} m`;
+        }
+      });
+
+      requestAnimationFrame(update);
+    </script>
+  </body>
+</html>

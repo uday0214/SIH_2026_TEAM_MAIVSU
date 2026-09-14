@@ -1,0 +1,1797 @@
+{
+  "lidar": {
+    "name": "lidar",
+    "cost_inr": 484600,
+    "aggregated_effectiveness": 0.29595555101266374,
+    "optimal_angles_by_dist": {
+      "3.0": -31.76,
+      "6.0": -17.76,
+      "9.0": -12.5,
+      "12.0": -9.8,
+      "15.0": -8.15
+    },
+    "avg_by_dist": {
+      "3.0": 0.7834,
+      "6.0": 0.4322,
+      "9.0": 0.1148,
+      "12.0": 0.086,
+      "15.0": 0.0859
+    },
+    "avg_by_tod": {
+      "day": 0.298,
+      "night": 0.3029
+    },
+    "avg_by_water": {
+      "0.0": 0.3811,
+      "0.25": 0.3021,
+      "0.5": 0.2807,
+      "1.0": 0.2379
+    },
+    "scenarios": [
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -31.76,
+        "score": 1.0,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -31.76,
+        "score": 0.7875,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -31.76,
+        "score": 0.725,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -31.76,
+        "score": 0.6,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -31.76,
+        "score": 1.0,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -31.76,
+        "score": 0.8033,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -31.76,
+        "score": 0.7395,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -31.76,
+        "score": 0.612,
+        "weight": 0.015
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -17.76,
+        "score": 0.55,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -17.76,
+        "score": 0.4331,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -17.76,
+        "score": 0.3987,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -17.76,
+        "score": 0.33,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -17.76,
+        "score": 0.561,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -17.76,
+        "score": 0.4418,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -17.76,
+        "score": 0.4067,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -17.76,
+        "score": 0.3366,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -12.5,
+        "score": 0.1461,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -12.5,
+        "score": 0.115,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -12.5,
+        "score": 0.1059,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -12.5,
+        "score": 0.0877,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -12.5,
+        "score": 0.149,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -12.5,
+        "score": 0.1173,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -12.5,
+        "score": 0.108,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -12.5,
+        "score": 0.0894,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -9.8,
+        "score": 0.1004,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -9.8,
+        "score": 0.08,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -9.8,
+        "score": 0.08,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -9.8,
+        "score": 0.08,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -9.8,
+        "score": 0.1024,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -9.8,
+        "score": 0.0816,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -9.8,
+        "score": 0.0816,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -9.8,
+        "score": 0.0816,
+        "weight": 0.02
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -8.15,
+        "score": 0.1,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -8.15,
+        "score": 0.08,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -8.15,
+        "score": 0.08,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -8.15,
+        "score": 0.08,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -8.15,
+        "score": 0.102,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -8.15,
+        "score": 0.0816,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -8.15,
+        "score": 0.0816,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -8.15,
+        "score": 0.0816,
+        "weight": 0.015
+      }
+    ],
+    "norm_cost": 1.0,
+    "cost_savings_norm": 0.0,
+    "cer_pct_per_10k": 0.611,
+    "utility_scores": {
+      "balanced": 19.24,
+      "safety_first": 25.16,
+      "budget": 13.32
+    }
+  },
+  "camera": {
+    "name": "camera",
+    "cost_inr": 40120,
+    "aggregated_effectiveness": 0.6678328538884626,
+    "optimal_angles_by_dist": {
+      "3.0": -6.65,
+      "6.0": -3.34,
+      "9.0": -2.23,
+      "12.0": -1.67,
+      "15.0": -1.34
+    },
+    "avg_by_dist": {
+      "3.0": 0.8408,
+      "6.0": 0.7178,
+      "9.0": 0.6555,
+      "12.0": 0.6084,
+      "15.0": 0.5672
+    },
+    "avg_by_tod": {
+      "day": 0.7689,
+      "night": 0.587
+    },
+    "avg_by_water": {
+      "0.0": 0.6162,
+      "0.25": 0.6985,
+      "0.5": 0.6985,
+      "1.0": 0.6985
+    },
+    "scenarios": [
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.8552,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.9254,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.9254,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.9254,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.7289,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.7887,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.7887,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.7887,
+        "weight": 0.015
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -3.34,
+        "score": 0.7206,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -3.34,
+        "score": 0.8206,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -3.34,
+        "score": 0.8206,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -3.34,
+        "score": 0.8206,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -3.34,
+        "score": 0.5798,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -3.34,
+        "score": 0.6602,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -3.34,
+        "score": 0.6602,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -3.34,
+        "score": 0.6602,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -2.23,
+        "score": 0.6712,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -2.23,
+        "score": 0.7712,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -2.23,
+        "score": 0.7712,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -2.23,
+        "score": 0.7712,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -2.23,
+        "score": 0.508,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -2.23,
+        "score": 0.5837,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -2.23,
+        "score": 0.5837,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -2.23,
+        "score": 0.5837,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -1.67,
+        "score": 0.6369,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -1.67,
+        "score": 0.7369,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -1.67,
+        "score": 0.7369,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -1.67,
+        "score": 0.7369,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -1.67,
+        "score": 0.4516,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -1.67,
+        "score": 0.5226,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -1.67,
+        "score": 0.5226,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -1.67,
+        "score": 0.5226,
+        "weight": 0.02
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -1.34,
+        "score": 0.6079,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -1.34,
+        "score": 0.7079,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -1.34,
+        "score": 0.7079,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -1.34,
+        "score": 0.7079,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -1.34,
+        "score": 0.402,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -1.34,
+        "score": 0.4682,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -1.34,
+        "score": 0.4682,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -1.34,
+        "score": 0.4682,
+        "weight": 0.015
+      }
+    ],
+    "norm_cost": 0.0,
+    "cost_savings_norm": 1.0,
+    "cer_pct_per_10k": 16.646,
+    "utility_scores": {
+      "balanced": 78.41,
+      "safety_first": 71.77,
+      "budget": 85.05
+    }
+  },
+  "radar": {
+    "name": "radar",
+    "cost_inr": 161384,
+    "aggregated_effectiveness": 0.7892947321428567,
+    "optimal_angles_by_dist": {
+      "3.0": -7.65,
+      "6.0": -4.34,
+      "9.0": -3.23,
+      "12.0": -2.67,
+      "15.0": -2.34
+    },
+    "avg_by_dist": {
+      "3.0": 0.8458,
+      "6.0": 0.8345,
+      "9.0": 0.8232,
+      "12.0": 0.7652,
+      "15.0": 0.6839
+    },
+    "avg_by_tod": {
+      "day": 0.7906,
+      "night": 0.7906
+    },
+    "avg_by_water": {
+      "0.0": 0.7459,
+      "0.25": 0.7714,
+      "0.5": 0.7969,
+      "1.0": 0.848
+    },
+    "scenarios": [
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -7.65,
+        "score": 0.8012,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -7.65,
+        "score": 0.8267,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -7.65,
+        "score": 0.8522,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -7.65,
+        "score": 0.9033,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -7.65,
+        "score": 0.8012,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -7.65,
+        "score": 0.8267,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -7.65,
+        "score": 0.8522,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -7.65,
+        "score": 0.9033,
+        "weight": 0.015
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -4.34,
+        "score": 0.7899,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -4.34,
+        "score": 0.8154,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -4.34,
+        "score": 0.8409,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -4.34,
+        "score": 0.892,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -4.34,
+        "score": 0.7899,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -4.34,
+        "score": 0.8154,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -4.34,
+        "score": 0.8409,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -4.34,
+        "score": 0.892,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -3.23,
+        "score": 0.7786,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -3.23,
+        "score": 0.8041,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -3.23,
+        "score": 0.8296,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -3.23,
+        "score": 0.8806,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -3.23,
+        "score": 0.7786,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -3.23,
+        "score": 0.8041,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -3.23,
+        "score": 0.8296,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -3.23,
+        "score": 0.8806,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -2.67,
+        "score": 0.7206,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -2.67,
+        "score": 0.7461,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -2.67,
+        "score": 0.7716,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -2.67,
+        "score": 0.8227,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -2.67,
+        "score": 0.7206,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -2.67,
+        "score": 0.7461,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -2.67,
+        "score": 0.7716,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -2.67,
+        "score": 0.8227,
+        "weight": 0.02
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -2.34,
+        "score": 0.6393,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -2.34,
+        "score": 0.6648,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -2.34,
+        "score": 0.6903,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -2.34,
+        "score": 0.7413,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -2.34,
+        "score": 0.6393,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -2.34,
+        "score": 0.6648,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -2.34,
+        "score": 0.6903,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -2.34,
+        "score": 0.7413,
+        "weight": 0.015
+      }
+    ],
+    "norm_cost": 0.2728,
+    "cost_savings_norm": 0.7272,
+    "cer_pct_per_10k": 4.891,
+    "utility_scores": {
+      "balanced": 76.76,
+      "safety_first": 78.0,
+      "budget": 75.51
+    }
+  },
+  "swir": {
+    "name": "swir",
+    "cost_inr": 320000,
+    "aggregated_effectiveness": 0.7194952232142856,
+    "optimal_angles_by_dist": {
+      "3.0": -30.26,
+      "6.0": -16.26,
+      "9.0": -11.0,
+      "12.0": -8.3,
+      "15.0": -6.65
+    },
+    "avg_by_dist": {
+      "3.0": 0.7962,
+      "6.0": 0.7642,
+      "9.0": 0.7323,
+      "12.0": 0.7004,
+      "15.0": 0.6684
+    },
+    "avg_by_tod": {
+      "day": 0.7323,
+      "night": 0.7323
+    },
+    "avg_by_water": {
+      "0.0": 0.6632,
+      "0.25": 0.6522,
+      "0.5": 0.7295,
+      "1.0": 0.8843
+    },
+    "scenarios": [
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -30.26,
+        "score": 0.7211,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -30.26,
+        "score": 0.7091,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -30.26,
+        "score": 0.7932,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -30.26,
+        "score": 0.9614,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -30.26,
+        "score": 0.7211,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -30.26,
+        "score": 0.7091,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -30.26,
+        "score": 0.7932,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -30.26,
+        "score": 0.9614,
+        "weight": 0.015
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -16.26,
+        "score": 0.6921,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -16.26,
+        "score": 0.6806,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -16.26,
+        "score": 0.7614,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -16.26,
+        "score": 0.9229,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -16.26,
+        "score": 0.6921,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -16.26,
+        "score": 0.6806,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -16.26,
+        "score": 0.7614,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -16.26,
+        "score": 0.9229,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -11.0,
+        "score": 0.6632,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -11.0,
+        "score": 0.6522,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -11.0,
+        "score": 0.7295,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -11.0,
+        "score": 0.8843,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -11.0,
+        "score": 0.6632,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -11.0,
+        "score": 0.6522,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -11.0,
+        "score": 0.7295,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -11.0,
+        "score": 0.8843,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -8.3,
+        "score": 0.6343,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -8.3,
+        "score": 0.6237,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -8.3,
+        "score": 0.6977,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -8.3,
+        "score": 0.8457,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -8.3,
+        "score": 0.6343,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -8.3,
+        "score": 0.6237,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -8.3,
+        "score": 0.6977,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -8.3,
+        "score": 0.8457,
+        "weight": 0.02
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.6054,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.5953,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.6659,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.8071,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.6054,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.5953,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.6659,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 0.8071,
+        "weight": 0.015
+      }
+    ],
+    "norm_cost": 0.6297,
+    "cost_savings_norm": 0.3703,
+    "cer_pct_per_10k": 2.248,
+    "utility_scores": {
+      "balanced": 59.73,
+      "safety_first": 66.71,
+      "budget": 52.74
+    }
+  },
+  "thermal": {
+    "name": "thermal",
+    "cost_inr": 202000,
+    "aggregated_effectiveness": 1.0,
+    "optimal_angles_by_dist": {
+      "3.0": -6.65,
+      "6.0": -3.34,
+      "9.0": -2.23,
+      "12.0": -1.67,
+      "15.0": -1.34
+    },
+    "avg_by_dist": {
+      "3.0": 1.0,
+      "6.0": 1.0,
+      "9.0": 1.0,
+      "12.0": 1.0,
+      "15.0": 1.0
+    },
+    "avg_by_tod": {
+      "day": 1.0,
+      "night": 1.0
+    },
+    "avg_by_water": {
+      "0.0": 1.0,
+      "0.25": 1.0,
+      "0.5": 1.0,
+      "1.0": 1.0
+    },
+    "scenarios": [
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 1.0,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -6.65,
+        "score": 1.0,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -6.65,
+        "score": 1.0,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 1.0,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 1.0,
+        "weight": 0.02625
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -6.65,
+        "score": 1.0,
+        "weight": 0.01875
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -6.65,
+        "score": 1.0,
+        "weight": 0.015
+      },
+      {
+        "distance": 3.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -6.65,
+        "score": 1.0,
+        "weight": 0.015
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -3.34,
+        "score": 1.0,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -3.34,
+        "score": 1.0,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -3.34,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -3.34,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -3.34,
+        "score": 1.0,
+        "weight": 0.04375
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -3.34,
+        "score": 1.0,
+        "weight": 0.03125
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -3.34,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 6.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -3.34,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -2.23,
+        "score": 1.0,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -2.23,
+        "score": 1.0,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -2.23,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -2.23,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -2.23,
+        "score": 1.0,
+        "weight": 0.04375
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -2.23,
+        "score": 1.0,
+        "weight": 0.03125
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -2.23,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 9.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -2.23,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -1.67,
+        "score": 1.0,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -1.67,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -1.67,
+        "score": 1.0,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -1.67,
+        "score": 1.0,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -1.67,
+        "score": 1.0,
+        "weight": 0.035
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -1.67,
+        "score": 1.0,
+        "weight": 0.025
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -1.67,
+        "score": 1.0,
+        "weight": 0.02
+      },
+      {
+        "distance": 12.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -1.67,
+        "score": 1.0,
+        "weight": 0.02
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -1.34,
+        "score": 1.0,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -1.34,
+        "score": 1.0,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -1.34,
+        "score": 1.0,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "day",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -1.34,
+        "score": 1.0,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.0,
+        "optimal_pitch_deg": -1.34,
+        "score": 1.0,
+        "weight": 0.02625
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.25,
+        "optimal_pitch_deg": -1.34,
+        "score": 1.0,
+        "weight": 0.01875
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 0.5,
+        "optimal_pitch_deg": -1.34,
+        "score": 1.0,
+        "weight": 0.015
+      },
+      {
+        "distance": 15.0,
+        "time_of_day": "night",
+        "water_level": 1.0,
+        "optimal_pitch_deg": -1.34,
+        "score": 1.0,
+        "weight": 0.015
+      }
+    ],
+    "norm_cost": 0.3642,
+    "cost_savings_norm": 0.6358,
+    "cer_pct_per_10k": 4.95,
+    "utility_scores": {
+      "balanced": 87.25,
+      "safety_first": 94.54,
+      "budget": 79.97
+    }
+  }
+}
